@@ -17,6 +17,12 @@
 
 .watch-page:fullscreen { background: #000; height: 100dvh; width: 100vw; overflow: hidden; }
 .watch-page.is-fullscreen { height: 100dvh; overflow: hidden; }
+.watch-page.is-pseudo-fullscreen {
+  inset: 0;
+  position: fixed;
+  width: 100vw;
+  z-index: 9999;
+}
 .watch-page.is-fullscreen .watch-stage-wrap { flex: 1; height: auto; min-height: 0; padding: 0; }
 .watch-page.is-fullscreen .watch-stage { aspect-ratio: auto; border-radius: 0; height: 100%; max-height: none; }
 .watch-page.is-fullscreen .stage-popout { right: 18px; }

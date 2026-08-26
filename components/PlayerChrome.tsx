@@ -338,6 +338,7 @@ export function PlayerChrome({
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPseudoFullscreen, setIsPseudoFullscreen] = useState(false);
   const [isWide, setIsWide] = useState(false);
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const [idle, setIdle] = useState(false);
@@ -371,7 +372,11 @@ export function PlayerChrome({
   /* ------------------------------ fullscreen ----------------------------- */
 
   useEffect(() => {
-    const sync = () => setIsFullscreen(fullscreenElement() === pageRef.current);
+    const sync = () => {
+      const active = fullscreenElement() === pageRef.current;
+      setIsFullscreen(active);
+      if (active) setIsPseudoFullscreen(false);
+    };
     document.addEventListener("fullscreenchange", sync);
     document.addEventListener("webkitfullscreenchange", sync);
     sync();
@@ -381,28 +386,58 @@ export function PlayerChrome({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isPseudoFullscreen) return;
+
+    const bodyOverflow = document.body.style.overflow;
+    const rootOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = bodyOverflow;
+      document.documentElement.style.overflow = rootOverflow;
+    };
+  }, [isPseudoFullscreen]);
+
   const toggleFullscreen = useCallback(() => {
     const node = pageRef.current as FullscreenElement | null;
     if (!node) return;
     const doc = document as FullscreenDocument;
+    const activeElement = fullscreenElement();
+
+    if (isPseudoFullscreen) {
+      setIsPseudoFullscreen(false);
+      return;
+    }
+
+    if (activeElement) {
+      const exit = doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.();
+      Promise.resolve(exit).catch(() => setIsPseudoFullscreen(false));
+      return;
+    }
 
     // iPhone Safari exposes fullscreen on <video>, not arbitrary page nodes.
-    if (!fullscreenElement() && !node.requestFullscreen && !node.webkitRequestFullscreen && isNative) {
+    if (!node.requestFullscreen && !node.webkitRequestFullscreen && isNative) {
       (videoRef.current as MobileVideoElement | null)?.webkitEnterFullscreen?.();
       return;
     }
 
-    // Fullscreen the page root, not the iframe: a cross-origin provider frame
-    // may refuse its own request, but ours always applies — and taking the
-    // root along keeps the chrome on screen.
-    const run = fullscreenElement()
-      ? (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.())
-      : (node.requestFullscreen?.({ navigationUI: "hide" }) ?? node.webkitRequestFullscreen?.());
+    // Fullscreen the page root, not the iframe, so the custom chrome comes
+    // along. Browsers that reject element fullscreen use the viewport fallback.
+    const request = node.requestFullscreen?.bind(node) ?? node.webkitRequestFullscreen?.bind(node);
+    if (!request) {
+      setIsPseudoFullscreen(true);
+      return;
+    }
 
-    Promise.resolve(run).catch(() => {
-      /* The browser declined (no user gesture, or policy). Nothing to do. */
-    });
-  }, [isNative]);
+    try {
+      const result = request();
+      Promise.resolve(result).catch(() => setIsPseudoFullscreen(true));
+    } catch {
+      setIsPseudoFullscreen(true);
+    }
+  }, [isNative, isPseudoFullscreen]);
 
   /* ------------------------------- transport ----------------------------- */
 
@@ -546,7 +581,8 @@ export function PlayerChrome({
           toggleFullscreen();
           break;
         case "Escape":
-          setOpenPanel(null);
+          if (isPseudoFullscreen) setIsPseudoFullscreen(false);
+          else setOpenPanel(null);
           break;
         case " ":
         case "k":
@@ -577,7 +613,7 @@ export function PlayerChrome({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [live, seekBy, toggleFullscreen, toggleMute, togglePlay, wake]);
+  }, [isPseudoFullscreen, live, seekBy, toggleFullscreen, toggleMute, togglePlay, wake]);
 
   /* ------------------------------- derived ------------------------------- */
 
@@ -601,6 +637,7 @@ export function PlayerChrome({
     : [nowPlaying, runtimeLabel].filter(Boolean).join(" · ");
 
   const activePanel = panels.find((panel) => panel.id === openPanel) ?? null;
+  const fullscreenActive = isFullscreen || isPseudoFullscreen;
 
   const panelButton = (panel: PlayerPanel) => (
     <button
@@ -626,7 +663,8 @@ export function PlayerChrome({
         // Marks a transport that actually moves the picture — a native video or
         // a connected bridge. Fullscreen floats the bars only in that case.
         live ? "is-live" : "",
-        isFullscreen ? "is-fullscreen" : "",
+        fullscreenActive ? "is-fullscreen" : "",
+        isPseudoFullscreen ? "is-pseudo-fullscreen" : "",
         isWide ? "is-wide" : "",
         idle ? "is-idle" : "",
         overlayVisible ? "is-paused" : "is-playing",
@@ -899,12 +937,12 @@ export function PlayerChrome({
             </button>
             <button
               type="button"
-              className={`${CHROME_BUTTON}${isFullscreen ? " is-active bg-white/20 text-white" : ""}`}
+              className={`${CHROME_BUTTON}${fullscreenActive ? " is-active bg-white/20 text-white" : ""}`}
               onClick={toggleFullscreen}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              title={isFullscreen ? "Exit fullscreen (f)" : "Fullscreen (f)"}
+              aria-label={fullscreenActive ? "Exit fullscreen" : "Fullscreen"}
+              title={fullscreenActive ? "Exit fullscreen (f)" : "Fullscreen (f)"}
             >
-              <Glyph name={isFullscreen ? "collapse" : "expand"} />
+              <Glyph name={fullscreenActive ? "collapse" : "expand"} />
             </button>
           </div>
         </div>
