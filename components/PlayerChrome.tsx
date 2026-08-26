@@ -87,6 +87,10 @@ type FullscreenElement = HTMLElement & {
   webkitRequestFullscreen?: () => Promise<void> | void;
 };
 
+type MobileVideoElement = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
 function fullscreenElement(): Element | null {
   const doc = document as FullscreenDocument;
   return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
@@ -332,7 +336,6 @@ export function PlayerChrome({
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isWide, setIsWide] = useState(false);
@@ -383,6 +386,12 @@ export function PlayerChrome({
     if (!node) return;
     const doc = document as FullscreenDocument;
 
+    // iPhone Safari exposes fullscreen on <video>, not arbitrary page nodes.
+    if (!fullscreenElement() && !node.requestFullscreen && !node.webkitRequestFullscreen && isNative) {
+      (videoRef.current as MobileVideoElement | null)?.webkitEnterFullscreen?.();
+      return;
+    }
+
     // Fullscreen the page root, not the iframe: a cross-origin provider frame
     // may refuse its own request, but ours always applies — and taking the
     // root along keeps the chrome on screen.
@@ -393,7 +402,7 @@ export function PlayerChrome({
     Promise.resolve(run).catch(() => {
       /* The browser declined (no user gesture, or policy). Nothing to do. */
     });
-  }, []);
+  }, [isNative]);
 
   /* ------------------------------- transport ----------------------------- */
 
@@ -465,18 +474,6 @@ export function PlayerChrome({
     },
     [],
   );
-
-  const applyVolume = useCallback((value: number) => {
-    const video = videoRef.current;
-    setVolume(value);
-    setMuted(value === 0);
-    if (!isNative) {
-      if (bridge.connected) remote.setVolume(value);
-    } else if (video) {
-      video.volume = value;
-      video.muted = value === 0;
-    }
-  }, [bridge.connected, isNative, remote]);
 
   const toggleMute = useCallback(() => {
     if (!isNative) {
@@ -687,10 +684,7 @@ export function PlayerChrome({
               onPause={() => setPlaying(false)}
               onWaiting={() => setLoading(true)}
               onPlaying={() => setLoading(false)}
-              onVolumeChange={(event) => {
-                setVolume(event.currentTarget.volume);
-                setMuted(event.currentTarget.muted);
-              }}
+              onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
             />
           ) : (
             started && (
@@ -716,9 +710,6 @@ export function PlayerChrome({
               control bar, and clicking the picture plays/pauses through us. */}
           {bridged && <div className="absolute inset-0 z-[2] cursor-pointer" onClick={togglePlay} aria-hidden />}
 
-          {/* Its chrome still shows once on load, before its own 2.8s auto-hide.
-              These bands cover exactly the strips it draws, for exactly as long
-              as it says they are up. */}
           {providerTop && <div className="absolute inset-x-0 top-0 z-[3] h-[max(58px,13%)] bg-black pointer-events-none" aria-hidden />}
           {providerBottom && <div className="absolute inset-x-0 bottom-0 z-[3] h-[max(66px,16%)] bg-black pointer-events-none" aria-hidden />}
 
@@ -840,17 +831,6 @@ export function PlayerChrome({
                   >
                     <Glyph name={isMuted ? "mute" : "volume"} />
                   </button>
-                  <input
-                    className="volume-slider mx-2 h-1 w-[92px] cursor-pointer appearance-none overflow-hidden rounded-full bg-white/28 max-[760px]:w-[64px]"
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={isMuted ? 0 : volume}
-                    onChange={(event) => applyVolume(Number(event.target.value))}
-                    aria-label="Volume"
-                    aria-valuetext={`${Math.round((isMuted ? 0 : volume) * 100)}%`}
-                  />
                 </div>
               </>
             ) : (
