@@ -1,0 +1,40 @@
+# Dependencies
+/node_modules/
+
+# Next.js build output
+/.next/
+/out/
+
+# Production and test output
+/build/
+/coverage/
+
+# Environment files (keep the safe template)
+.env*
+!.env.example
+
+# Vercel
+/.vercel/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local editor and agent settings
+/.vscode/
+/.idea/
+/.claude/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Local screenshots and scratch files
+/remove.png
