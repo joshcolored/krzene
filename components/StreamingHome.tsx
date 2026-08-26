@@ -9,7 +9,7 @@ import { ProfileChooser } from "./ProfileChooser";
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
 type NavItem = (typeof NAV_ITEMS)[number];
 
-type IconName = "home" | "movie" | "shows" | "anime" | "library" | "search" | "chevron-left" | "chevron-right";
+type IconName = "home" | "movie" | "shows" | "anime" | "library" | "search" | "menu" | "chevron-left" | "chevron-right";
 
 const NAV_ICONS: Record<NavItem, IconName> = {
   Home: "home",
@@ -29,13 +29,14 @@ function UiIcon({ name }: { name: IconName }) {
   };
 
   return (
-    <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...common}>
+    <svg className="block h-[1.15em] w-[1.15em]" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...common}>
       {name === "home" && <><path d="M3.5 10.5 12 3.8l8.5 6.7" /><path d="M5.7 9.2v10.5h12.6V9.2M9.3 19.7v-6h5.4v6" /></>}
       {name === "movie" && <><rect x="3.5" y="6.5" width="17" height="13" rx="2" /><path d="m4.5 10 4-3.5m2.5 3.5 4-3.5m2.5 3.5 3-2.6M3.5 10h17" /></>}
       {name === "shows" && <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m9.5 9 6 3-6 3V9Z" /></>}
       {name === "anime" && <><path d="M12 3.5 14.3 8l5 .7-3.6 3.5.8 5-4.5-2.4-4.5 2.4.8-5-3.6-3.5 5-.7L12 3.5Z" /><path d="M9.4 11.2h.1m5 0h.1M10 13.6c1.2.8 2.8.8 4 0" /></>}
       {name === "library" && <><rect x="4" y="4" width="5" height="16" rx="1" /><rect x="10.2" y="4" width="4.8" height="16" rx="1" /><path d="m16.3 5.1 3.2-.8 2.8 14.3-3.2.7-2.8-14.2Z" /></>}
       {name === "search" && <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.4 15.4 4.6 4.6" /></>}
+      {name === "menu" && <><path d="M5 7h14M5 12h14M5 17h14" /></>}
       {name === "chevron-left" && <path d="m14.5 6-6 6 6 6" />}
       {name === "chevron-right" && <path d="m9.5 6 6 6-6 6" />}
     </svg>
@@ -54,21 +55,21 @@ function subtitleFor(media: Media): string {
 function MediaCard({ media, saved, onSave }: { media: Media; saved: boolean; onSave: () => void }) {
   const art = artFor(media);
   return (
-    <article className="media-card">
-      <Link href={watchHref(media)} className="media-art" aria-label={`Watch ${media.title}`}>
-        {art ? <img src={art} alt="" loading="lazy" /> : <span className="art-fallback">{media.title}</span>}
-        <span className="media-shade" />
-        <span className="play-disc">▶</span>
-        <span className="quality-chip">{media.kind === "tv" ? "SERIES" : "HD"}</span>
-        {media.score > 0 && <span className="score-chip">★ {media.score.toFixed(1)}</span>}
+    <article className="min-w-0 shrink-0 basis-[calc((100%_-_64px)/5)] snap-start max-[1080px]:basis-[calc((100%_-_32px)/3)] max-[760px]:basis-[74vw]">
+      <Link href={watchHref(media)} className="group relative block aspect-[1.56] overflow-hidden rounded-[15px] border border-white/5 bg-[#171717] shadow-[0_18px_35px_rgba(0,0,0,.28)]" aria-label={`Watch ${media.title}`}>
+        {art ? <img className="h-full w-full object-cover transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:scale-[1.055]" src={art} alt="" loading="lazy" /> : <span className="flex h-full w-full items-center justify-center bg-[linear-gradient(140deg,#1d1d1d,#121212)] p-4 text-center font-display text-[13px] leading-[1.3] font-bold text-[#5f5c58]">{media.title}</span>}
+        <span className="absolute inset-0 bg-[linear-gradient(0deg,rgba(0,0,0,.72),transparent_56%)]" />
+        <span className="absolute top-1/2 left-1/2 flex h-[42px] w-[42px] -translate-x-1/2 -translate-y-[40%] items-center justify-center rounded-full bg-white/90 pl-[3px] text-[#0b0b0b] opacity-0 transition duration-250 group-hover:-translate-y-1/2 group-hover:opacity-100">▶</span>
+        <span className="absolute right-[10px] bottom-[10px] rounded-[5px] border border-white/18 bg-black/70 px-[5px] py-[3px] text-[9px] font-extrabold">{media.kind === "tv" ? "SERIES" : "HD"}</span>
+        {media.score > 0 && <span className="absolute bottom-[10px] left-[10px] rounded-[5px] border border-white/16 bg-black/72 px-[5px] py-[3px] text-[9px] font-extrabold">★ {media.score.toFixed(1)}</span>}
       </Link>
-      <div className="media-copy">
-        <div>
-          <h3 title={media.title}>{media.title}</h3>
-          <p>{subtitleFor(media)}</p>
+      <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden px-[3px] pt-3">
+        <div className="w-[calc(100%_-_37px)] min-w-0 flex-[0_1_calc(100%_-_37px)] overflow-hidden">
+          <h3 className="block w-full max-w-full overflow-hidden text-sm font-bold text-ellipsis whitespace-nowrap" title={media.title}>{media.title}</h3>
+          <p className="m-0 text-[11px] text-[#77746f]">{subtitleFor(media)}</p>
         </div>
         <button
-          className={`save-button ${saved ? "saved" : ""}`}
+          className={`ml-auto h-[29px] w-[29px] shrink-0 cursor-pointer rounded-full border border-[#343331] bg-transparent hover:bg-white hover:text-black ${saved ? "bg-white text-black" : ""}`}
           onClick={onSave}
           aria-label={saved ? `Remove ${media.title} from watchlist` : `Add ${media.title} to watchlist`}
         >
@@ -98,25 +99,25 @@ function Rail({
   };
 
   return (
-    <section className={`rail-section ${first ? "first-rail" : ""}`}>
-      <div className="section-heading">
+    <section className={first ? "pt-0" : "pt-[72px] max-[760px]:pt-[55px]"}>
+      <div className="mb-[19px] flex items-end justify-between">
         <div>
-          <span className="section-kicker">{rail.kicker}</span>
-          <h2>{rail.heading}</h2>
+          <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">{rail.kicker}</span>
+          <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">{rail.heading}</h2>
         </div>
-        <div className="rail-meta">
-          <span className="rail-count">{rail.items.length} titles</span>
-          <div className="rail-controls" aria-label={`${rail.heading} carousel controls`}>
-            <button type="button" className="rail-arrow" onClick={() => scrollRail(-1)} aria-label={`Previous ${rail.heading} titles`}>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] font-bold whitespace-nowrap text-[#6f6b66]">{rail.items.length} titles</span>
+          <div className="flex gap-[6px]" aria-label={`${rail.heading} carousel controls`}>
+            <button type="button" className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-[#151515] p-0 text-[#aaa6a0] transition hover:border-[#f2f0ec] hover:bg-[#f2f0ec] hover:text-[#111]" onClick={() => scrollRail(-1)} aria-label={`Previous ${rail.heading} titles`}>
               <UiIcon name="chevron-left" />
             </button>
-            <button type="button" className="rail-arrow" onClick={() => scrollRail(1)} aria-label={`Next ${rail.heading} titles`}>
+            <button type="button" className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-[#151515] p-0 text-[#aaa6a0] transition hover:border-[#f2f0ec] hover:bg-[#f2f0ec] hover:text-[#111]" onClick={() => scrollRail(1)} aria-label={`Next ${rail.heading} titles`}>
               <UiIcon name="chevron-right" />
             </button>
           </div>
         </div>
       </div>
-      <div className="media-rail" ref={railRef}>
+      <div className="media-rail flex snap-x snap-proximity gap-4 overflow-x-auto overscroll-x-contain px-0 pt-[2px] pb-[10px] [scroll-padding-left:2px] max-[760px]:mr-[-20px] max-[760px]:pr-5" ref={railRef}>
         {rail.items.map((media) => (
           <MediaCard key={media.key} media={media} saved={savedKeys.has(media.key)} onSave={() => onSave(media)} />
         ))}
@@ -127,30 +128,30 @@ function Rail({
 
 function SetupNotice({ reason }: { reason: string }) {
   return (
-    <main className="site-shell">
-      <div className="setup-wrap">
-        <div className="setup-card">
-          <span className="brand"><img src="/krzene-mark.svg" alt="" /></span>
-          <h1>Add a TMDB key to fill the catalog</h1>
-          <p>
+    <main className="min-h-screen overflow-x-clip bg-krzene-bg text-krzene-text">
+      <div className="flex min-h-screen items-center justify-center px-[22px] py-10">
+        <div className="w-full max-w-[620px] rounded-[22px] border border-white/9 bg-[#101010] p-[38px] shadow-[0_40px_120px_#000] max-[760px]:px-[22px] max-[760px]:py-[26px]">
+          <span className="mb-[22px] inline-flex h-[42px] w-[42px] overflow-hidden rounded-[14px]"><img className="h-full w-full" src="/krzene-mark.svg" alt="" /></span>
+          <h1 className="mb-4 font-display text-[30px] leading-[1.15] font-extrabold tracking-[-.03em] max-[760px]:text-[25px]">Add a TMDB key to fill the catalog</h1>
+          <p className="mb-[14px] text-sm leading-[1.7] text-[#a5a19b]">
             VidSrc streams the video, but its <code>vapi</code> listing endpoints are retired and return 404
             on every mirror — so movie and show listings come from TMDB instead. Playback still runs through
             VidSrc&apos;s <code>embed</code> endpoints.
           </p>
-          <p className="setup-reason">{reason}</p>
-          <ol>
+          <p className="mb-[14px] text-xs leading-[1.7] text-[#e0a04a]">{reason}</p>
+          <ol className="mt-[22px] list-decimal space-y-2.5 pl-5 text-sm leading-[1.8] text-[#cbc7c1]">
             <li>
               Grab a free key at <b>themoviedb.org → Settings → API</b>.
             </li>
             <li>
-              Put it in <code>.env.local</code> at the project root:
-              <pre>TMDB_API_KEY=your_key_here</pre>
+              Put it in <code className="rounded-[5px] bg-[#1d1d1d] px-1.5 py-0.5 text-xs text-[#f0ede8]">.env.local</code> at the project root:
+              <pre className="mt-[9px] overflow-x-auto rounded-[9px] border border-white/9 bg-[#1a1a1a] px-[14px] py-3 text-xs">TMDB_API_KEY=your_key_here</pre>
             </li>
             <li>
               Restart the dev server: <code>npm run dev</code>
             </li>
           </ol>
-          <p className="setup-foot">Either a v3 API key or a v4 read access token works.</p>
+          <p className="mt-[22px] text-xs leading-[1.7] text-[#6f6b66]">Either a v3 API key or a v4 read access token works.</p>
         </div>
       </div>
     </main>
@@ -169,6 +170,7 @@ function CatalogHome({
   const [active, setActive] = useState<NavItem>("Home");
   const [query, setQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [results, setResults] = useState<Media[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [showProfiles, setShowProfiles] = useState(false);
@@ -226,7 +228,7 @@ function CatalogHome({
       case "Library":
         return [];
       default:
-        return rails;
+        return rails.filter((rail) => rail.id !== "trending");
     }
   }, [active, rails]);
 
@@ -240,25 +242,34 @@ function CatalogHome({
   const trimmedQuery = query.trim();
 
   return (
-    <main className="site-shell">
-      <header className="floating-nav">
-        <Link href="/" className="brand" aria-label="Krzene home">
-          <img src="/krzene-mark.svg" alt="" />
+    <main className="min-h-screen overflow-hidden bg-krzene-bg">
+      <header className="fixed top-5 left-1/2 z-50 flex h-[62px] w-[calc(100%_-_48px)] max-w-[1180px] -translate-x-1/2 items-center justify-between gap-[18px] rounded-[22px] border border-white/9 bg-[rgba(12,12,12,.72)] p-[8px_10px] shadow-[0_16px_50px_rgba(0,0,0,.32)] backdrop-blur-3xl max-[760px]:top-3 max-[760px]:h-[60px] max-[760px]:w-[calc(100%_-_24px)] max-[760px]:gap-2 max-[760px]:p-[7px_8px]">
+        <Link href="/" className="inline-flex h-[42px] basis-[42px] shrink-0 items-center justify-center overflow-hidden rounded-[14px] max-[760px]:h-10 max-[760px]:basis-10" aria-label="Krzene home">
+          <img className="h-full w-full" src="/krzene-mark.svg" alt="" />
         </Link>
-        <nav aria-label="Primary navigation">
+        <nav className="flex flex-1 justify-center gap-0.5 max-[760px]:justify-around" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => (
-            <button key={item} className={active === item ? "active" : ""} onClick={() => setActive(item)} aria-pressed={active === item}>
-              <span className="nav-icon" aria-hidden="true">
+            <button key={item} className={`flex cursor-pointer items-center gap-[7px] rounded-[13px] border-0 px-3.5 py-3 text-[13px] font-bold text-[#9e9b97] transition hover:bg-white/12 hover:text-white max-[1080px]:px-[9px] max-[1080px]:[&_.nav-icon]:hidden max-[760px]:px-2.5 max-[760px]:text-[0px] max-[760px]:[&_.nav-icon]:inline max-[760px]:[&_.nav-icon]:text-xl ${item !== "Home" ? "max-[760px]:hidden" : ""} ${active === item ? "bg-white/12 text-white" : "bg-transparent"}`} onClick={() => setActive(item)} aria-pressed={active === item}>
+              <span className="nav-icon text-[17px] font-normal text-[#aaa6a0]" aria-hidden="true">
                 <UiIcon name={NAV_ICONS[item]} />
               </span>{" "}
               {item}
-              {item === "Library" && savedItems.length > 0 && <i className="nav-badge">{savedItems.length}</i>}
+              {item === "Library" && savedItems.length > 0 && <i className="ml-[5px] rounded-[9px] bg-krzene-red px-[5px] py-[3px] text-[10px] leading-none font-bold not-italic">{savedItems.length}</i>}
             </button>
           ))}
-        </nav>
-        <div className="nav-actions">
           <button
-            className={`search-trigger ${showSearch ? "active" : ""}`}
+            type="button"
+            className={`hidden cursor-pointer items-center gap-1.5 rounded-[13px] border-0 px-2.5 py-2.5 text-[20px] transition max-[760px]:flex ${showMobileMenu ? "bg-white/12 text-white" : "bg-transparent text-[#aaa6a0]"}`}
+            onClick={() => setShowMobileMenu((current) => !current)}
+            aria-label="More navigation"
+            aria-expanded={showMobileMenu}
+          >
+            <UiIcon name="menu" />
+          </button>
+        </nav>
+        <div className="flex items-center gap-[7px] border-l border-white/9 pl-3 max-[760px]:border-0 max-[760px]:p-0">
+          <button
+            className={`flex h-10 cursor-pointer items-center gap-1.5 rounded-xl border-0 px-2.5 text-[13px] font-bold transition hover:bg-white/8 hover:text-white max-[760px]:px-[7px] max-[760px]:text-[21px] max-[760px]:[&_span]:hidden ${showSearch ? "bg-white/8 text-white" : "bg-transparent text-[#aaa6a0]"}`}
             onClick={() => setShowSearch((current) => !current)}
             aria-label="Search"
             aria-expanded={showSearch}
@@ -266,28 +277,50 @@ function CatalogHome({
             <UiIcon name="search" /> <span>Search</span>
           </button>
           <button
-            className="profile"
+            className="flex cursor-pointer items-center gap-2 border-0 bg-transparent"
             onClick={() => user ? setShowProfiles(true) : void signInWithGoogle()}
             aria-label={user ? "Choose or manage profile" : "Sign in with Google"}
           >
-            <span className={activeProfile?.avatarUrl ? "has-avatar" : ""}>
-              {activeProfile?.avatarUrl ? <img src={activeProfile.avatarUrl} alt="" referrerPolicy="no-referrer" /> : (activeProfile?.name || user?.email || "G").slice(0, 1).toUpperCase()}
+            <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#d9edf5] text-xs text-[#1c252b] shadow-[0_0_0_3px_rgba(255,255,255,.05)] max-[760px]:h-[34px] max-[760px]:w-[34px] ${activeProfile?.avatarUrl ? "overflow-hidden" : ""}`}>
+              {activeProfile?.avatarUrl ? <img className="h-full w-full object-cover" src={activeProfile.avatarUrl} alt="" referrerPolicy="no-referrer" /> : (activeProfile?.name || user?.email || "G").slice(0, 1).toUpperCase()}
             </span>
-            <b>{user ? activeProfile?.name || "Profiles" : "Google"}</b>
+            <b className="pr-[5px] text-xs max-[760px]:hidden">{user ? activeProfile?.name || "Profiles" : "Google"}</b>
           </button>
         </div>
+
+        {showMobileMenu && (
+          <div className="absolute top-[calc(100%_+_8px)] right-0 hidden w-[220px] flex-col gap-1 rounded-2xl border border-white/10 bg-[rgba(14,14,14,.98)] p-2 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-2xl max-[760px]:flex" role="menu">
+            {NAV_ITEMS.filter((item) => item !== "Home").map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="menuitem"
+                className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border-0 px-3.5 py-3 text-left text-sm font-bold transition ${active === item ? "bg-white/12 text-white" : "bg-transparent text-[#aaa6a0] hover:bg-white/8 hover:text-white"}`}
+                onClick={() => {
+                  setActive(item);
+                  setShowMobileMenu(false);
+                }}
+              >
+                <span className="text-lg"><UiIcon name={NAV_ICONS[item]} /></span>
+                <span>{item}</span>
+                {item === "Library" && savedItems.length > 0 && <i className="ml-auto rounded-full bg-krzene-red px-2 py-1 text-[10px] leading-none not-italic text-white">{savedItems.length}</i>}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {showSearch && (
-        <div className="search-panel">
-          <span><UiIcon name="search" /></span>
+        <div className="fixed top-[94px] left-1/2 z-49 flex w-[calc(100%_-_40px)] max-w-[620px] -translate-x-1/2 items-center gap-3 rounded-[18px] border border-white/9 bg-[rgba(18,18,18,.96)] p-[10px_12px_10px_18px] shadow-[0_25px_80px_#000] max-[760px]:top-[82px]">
+          <span className="text-[22px] text-[#8c8882]"><UiIcon name="search" /></span>
           <input
+            className="flex-1 border-0 bg-transparent py-2.5 text-[15px] text-white outline-none"
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search every movie and show"
           />
-          <button
+          <button className="cursor-pointer rounded-[10px] border-0 bg-[#2b2a29] px-3 py-[9px]"
             onClick={() => {
               setQuery("");
               setShowSearch(false);
@@ -299,30 +332,30 @@ function CatalogHome({
       )}
 
       {!user && authError && (
-        <div className="auth-toast" role="status">
-          <span>{authError}</span>
-          <button onClick={() => void signInWithGoogle()}>Try again</button>
+        <div className="fixed top-[94px] left-1/2 z-80 flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-3.5 rounded-xl border border-[rgba(226,25,39,.45)] bg-[#251213] px-3.5 py-[11px] max-[760px]:top-[82px]" role="status">
+          <span className="text-xs text-[#e8c7c9]">{authError}</span>
+          <button className="cursor-pointer whitespace-nowrap rounded-lg border-0 bg-krzene-red px-2.5 py-[7px] text-[11px] font-extrabold" onClick={() => void signInWithGoogle()}>Try again</button>
         </div>
       )}
 
       <ProfileChooser open={showProfiles} onClose={() => setShowProfiles(false)} />
 
       <section
-        className="hero"
+        className="relative flex min-h-[780px] items-start overflow-hidden bg-[#090909] bg-cover bg-[position:63%_45%] max-[760px]:min-h-[720px] max-[760px]:bg-[position:62%_center]"
         style={
           {
-            "--hero-image": heroArt ? `url(${heroArt})` : "none",
-            "--accent": hero.accent,
+            backgroundImage: heroArt ? `url(${heroArt})` : "none",
           } as React.CSSProperties
         }
       >
-        <div className="hero-vignette" />
-        <div className="hero-content">
-          <p className="eyebrow">
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,3,3,.98)_0%,rgba(4,4,4,.78)_31%,rgba(5,5,5,.1)_66%),linear-gradient(0deg,#070707_0%,transparent_45%)] max-[760px]:bg-[linear-gradient(0deg,#070707_2%,rgba(4,4,4,.45)_60%,rgba(0,0,0,.25)),linear-gradient(90deg,rgba(0,0,0,.65),transparent)]" />
+        <div className="absolute inset-0 z-[1]" style={{ background: `radial-gradient(circle at 40% 18%, color-mix(in srgb, ${hero.accent} 22%, transparent), transparent 42%)` }} />
+        <div className="relative z-[2] w-full max-w-[650px] pt-[132px] pl-[max(64px,calc((100vw_-_1310px)/2))] max-[760px]:px-[22px] max-[760px]:pt-[92px]">
+          <p className="text-xs font-bold tracking-[.06em] text-[#a8a39c] uppercase [&_span]:text-[#47c98d]">
             <span>{hero.kind === "tv" ? "Series" : "Feature film"}</span> • Trending now
           </p>
-          <h1>{hero.title}</h1>
-          <div className="hero-meta">
+          <h1 className="my-2 flex h-[238px] max-w-[650px] items-center overflow-hidden font-display text-[clamp(48px,5.8vw,82px)] leading-[.94] font-extrabold tracking-[-.06em] [text-shadow:0_12px_50px_#000] max-[760px]:h-[164px] max-[760px]:text-[clamp(42px,13vw,54px)]">{hero.title}</h1>
+          <div className="flex flex-wrap items-center gap-2.5 [&>b]:rounded-md [&>b]:border [&>b]:border-white/18 [&>b]:px-[7px] [&>b]:py-1 [&>b]:text-[11px] [&>b]:text-[#d4d1cc] [&>span]:text-[#47c98d]">
             {hero.score > 0 && <span>★ {hero.score.toFixed(1)}</span>}
             {hero.year && <b>{hero.year}</b>}
             {hero.runtime && <b>{hero.runtime}</b>}
@@ -330,30 +363,30 @@ function CatalogHome({
               <b key={genre}>{genre}</b>
             ))}
           </div>
-          <p className="hero-description">{hero.tagline || hero.overview}</p>
-          <div className="hero-actions">
-            <Link href={watchHref(hero)} className="primary-cta">
+          <p className="max-w-[540px] text-base leading-[1.65] text-[#c2beb8] max-[760px]:text-sm">{hero.tagline || hero.overview}</p>
+          <div className="mt-7 flex w-full gap-2.5">
+            <Link href={watchHref(hero)} className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] bg-[#f5f3ef] px-5 py-3.5 font-extrabold text-[#0d0d0d] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm">
               ▶ <span>Watch now</span>
             </Link>
-            <button className="secondary-cta" onClick={() => toggleSaved(hero)}>
+            <button className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] border-0 bg-white/12 px-5 py-3.5 font-extrabold text-white backdrop-blur-[10px] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm" onClick={() => toggleSaved(hero)}>
               {savedKeys.has(hero.key) ? "✓ In my list" : "+ My list"}
             </button>
           </div>
         </div>
       </section>
 
-      <div className="content-surface">
-        <div className="catalog-status">
-          <b>{totalTitles.toLocaleString()}</b> titles loaded · playback via VidSrc
-          {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""} · metadata via TMDB
+      <div className="relative z-[4] mt-[34px] bg-[linear-gradient(#070707,#090909)] px-[max(64px,calc((100vw_-_1310px)/2))] pb-[100px] max-[760px]:-mt-[65px] max-[760px]:px-5 max-[760px]:pb-[120px]">
+        <div className="mb-[34px] border-b border-white/9 pb-4 text-[11px] tracking-[.02em] text-[#6f6b66] max-[760px]:mb-[26px] [&_b]:text-[#c9c5bf]">
+          <b>{totalTitles.toLocaleString()}</b> Movies and Series loaded
+          {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""}
         </div>
 
         {trimmedQuery ? (
-          <section className="rail-section first-rail">
-            <div className="section-heading">
+          <section>
+            <div className="mb-[19px] flex items-end justify-between">
               <div>
-                <span className="section-kicker">SEARCH</span>
-                <h2>
+                <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">SEARCH</span>
+                <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">
                   {searching
                     ? "Searching…"
                     : `${results?.length ?? 0} result${results?.length === 1 ? "" : "s"} for “${trimmedQuery}”`}
@@ -361,7 +394,7 @@ function CatalogHome({
               </div>
             </div>
             {results && results.length > 0 ? (
-              <div className="media-grid">
+              <div className="grid grid-cols-5 gap-4 max-[1080px]:grid-cols-3 max-[760px]:mr-[-20px] max-[760px]:flex max-[760px]:overflow-x-auto max-[760px]:pr-5 max-[760px]:[scrollbar-width:none]">
                 {results.map((media) => (
                   <MediaCard
                     key={media.key}
@@ -372,81 +405,81 @@ function CatalogHome({
                 ))}
               </div>
             ) : (
-              !searching && <p className="results-note">Nothing matched. Try another title.</p>
+              !searching && <p className="mb-6 text-[#9d9993]">Nothing matched. Try another title.</p>
             )}
           </section>
         ) : active === "Library" ? (
-          <section className="rail-section first-rail">
-            <div className="section-heading">
+          <section>
+            <div className="mb-[19px] flex items-end justify-between">
               <div>
-                <span className="section-kicker">MY LIST</span>
-                <h2>{savedItems.length ? `${savedItems.length} saved` : "Nothing saved yet"}</h2>
+                <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">MY LIST</span>
+                <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">{savedItems.length ? `${savedItems.length} saved` : "Nothing saved yet"}</h2>
               </div>
             </div>
             {savedItems.length ? (
-              <div className="media-grid">
+              <div className="grid grid-cols-5 gap-4 max-[1080px]:grid-cols-3 max-[760px]:mr-[-20px] max-[760px]:flex max-[760px]:overflow-x-auto max-[760px]:pr-5 max-[760px]:[scrollbar-width:none]">
                 {savedItems.map((media) => (
                   <MediaCard key={media.key} media={media} saved onSave={() => toggleSaved(media)} />
                 ))}
               </div>
             ) : (
-              <p className="results-note">Tap + on any title to keep it here.</p>
+              <p className="mb-6 text-[#9d9993]">Tap + on any title to keep it here.</p>
             )}
           </section>
         ) : (
           <>
+            {active === "Home" && topTen.length > 0 && (
+              <section>
+                <div className="mb-[19px] flex items-end justify-between">
+                  <div>
+                    <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">TRENDING NOW</span>
+                    <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">Top 10 this week</h2>
+                  </div>
+                </div>
+                <div className="ranking-grid flex snap-x snap-proximity gap-4 overflow-x-auto py-[14px_10px] max-[760px]:mr-[-20px] max-[760px]:pr-5 max-[760px]:[scrollbar-width:none]">
+                  {topTen.map((media, rankingIndex) => {
+                    const art = artFor(media);
+                    return (
+                      <Link href={watchHref(media)} className="group flex min-w-0 shrink-0 basis-[calc((100%_-_64px)/5)] snap-start items-end max-[1080px]:basis-[calc((100%_-_32px)/3)] max-[760px]:basis-[260px]" key={media.key}>
+                        <strong className="relative z-0 mr-[-18px] font-display text-[105px] leading-[.75] font-extrabold text-transparent [-webkit-text-stroke:1.5px_#494744]">{rankingIndex + 1}</strong>
+                        <div className="relative z-[1] aspect-[1.35] flex-1 overflow-hidden rounded-[13px] [&>img]:h-full [&>img]:w-full [&>img]:object-cover [&>img]:transition-transform [&>img]:duration-400 group-hover:[&>img]:scale-[1.06]">
+                          {art ? <img src={art} alt="" loading="lazy" /> : <span className="flex h-full w-full items-center justify-center bg-[linear-gradient(140deg,#1d1d1d,#121212)] p-4 text-center font-display text-[13px] leading-[1.3] font-bold text-[#5f5c58]" />}
+                          <span className="absolute inset-x-0 bottom-0 flex flex-col bg-[linear-gradient(transparent,rgba(0,0,0,.9))] p-[30px_12px_10px] [&_small]:mt-[3px] [&_small]:text-[#aaa6a0]">
+                            <b>{media.title}</b>
+                            <small>{media.genres.join(" • ") || subtitleFor(media)}</small>
+                          </span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
             {visibleRails.map((rail, index) => (
-              <div key={rail.id} className="rail-group">
+              <div key={rail.id}>
                 <Rail
                   rail={rail}
-                  first={index === 0}
+                  first={index === 0 && active !== "Home"}
                   savedKeys={savedKeys}
                   onSave={toggleSaved}
                 />
-                {active === "Home" && rail.id === "trending" && topTen.length > 0 && (
-                  <section className="rail-section ranking-section">
-                    <div className="section-heading">
-                      <div>
-                        <span className="section-kicker">TRENDING NOW</span>
-                        <h2>Top 10 this week</h2>
-                      </div>
-                    </div>
-                    <div className="ranking-grid">
-                      {topTen.map((media, rankingIndex) => {
-                        const art = artFor(media);
-                        return (
-                          <Link href={watchHref(media)} className="rank-card" key={media.key}>
-                            <strong>{rankingIndex + 1}</strong>
-                            <div>
-                              {art ? <img src={art} alt="" loading="lazy" /> : <span className="art-fallback" />}
-                              <span>
-                                <b>{media.title}</b>
-                                <small>{media.genres.join(" • ") || subtitleFor(media)}</small>
-                              </span>
-                            </div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </section>
-                )}
               </div>
             ))}
           </>
         )}
       </div>
 
-      <footer className="site-footer">
-        <div className="footer-main">
-          <div className="footer-brand">
+      <footer className="mx-auto w-[calc(100%_-_64px)] max-w-[1310px] border-t border-white/9 pt-[52px] pb-[30px] text-[#88847e] max-[760px]:mb-6 max-[760px]:w-[calc(100%_-_40px)] max-[760px]:pt-[38px]">
+        <div className="grid grid-cols-[minmax(260px,1.7fr)_repeat(3,minmax(120px,.7fr))] gap-12 pb-[45px] max-[760px]:grid-cols-2 max-[760px]:gap-[34px_20px]">
+          <div className="max-w-[360px] max-[760px]:col-span-full">
             <Link href="/" aria-label="Krzene home">
-              <img src="/krzene-logo.svg" alt="Krzene" />
+              <img className="block h-[38px] w-auto" src="/krzene-logo.svg" alt="Krzene" />
             </Link>
-            <p>Discover your next favorite story. One profile, one library, ready on every screen.</p>
+            <p className="mt-5 max-w-[330px] text-[13px] leading-[1.65] text-[#77736e]">Discover your next favorite story. One profile, one library, ready on every screen.</p>
           </div>
 
-          <div className="footer-column">
-            <h3>Browse</h3>
+          <div className="flex flex-col items-start gap-[11px] [&_button]:cursor-pointer [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-left [&_button]:text-xs [&_button]:text-[#77736e] [&_button]:transition-colors hover:[&_button]:text-white">
+            <h3 className="mb-[7px] font-display text-xs font-bold tracking-[.08em] text-[#d8d4ce] uppercase">Browse</h3>
             {NAV_ITEMS.slice(0, 4).map((item) => (
               <button key={item} onClick={() => {
                 setActive(item);
@@ -455,8 +488,8 @@ function CatalogHome({
             ))}
           </div>
 
-          <div className="footer-column">
-            <h3>Your Krzene</h3>
+          <div className="flex flex-col items-start gap-[11px] [&_button]:cursor-pointer [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-left [&_button]:text-xs [&_button]:text-[#77736e] [&_button]:transition-colors hover:[&_button]:text-white">
+            <h3 className="mb-[7px] font-display text-xs font-bold tracking-[.08em] text-[#d8d4ce] uppercase">Your Krzene</h3>
             <button onClick={() => {
               setActive("Library");
               window.scrollTo({ top: 0, behavior: "smooth" });
@@ -466,17 +499,17 @@ function CatalogHome({
             </button>
           </div>
 
-          <div className="footer-column">
-            <h3>Powered by</h3>
+          <div className="flex flex-col items-start gap-[11px] [&_a]:text-xs [&_a]:text-[#77736e] [&_a]:transition-colors hover:[&_a]:text-white">
+            <h3 className="mb-[7px] font-display text-xs font-bold tracking-[.08em] text-[#d8d4ce] uppercase">Powered by</h3>
             <a href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">TMDB metadata ↗</a>
             <a href="https://vidsrc.xyz/" target="_blank" rel="noreferrer">VidSrc playback ↗</a>
           </div>
         </div>
 
-        <div className="footer-bottom">
+        <div className="grid grid-cols-[1fr_minmax(280px,1.5fr)_1fr] items-center gap-5 border-t border-white/6 pt-6 text-[10px] max-[760px]:grid-cols-1 max-[760px]:items-start [&_p]:m-0 [&_p]:text-center max-[760px]:[&_p]:text-left">
           <span>© 2026 Krzene. All rights reserved.</span>
           <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
-          <span className="footer-status"><i /> Streaming service online</span>
+          <span className="flex items-center justify-end gap-[7px] max-[760px]:justify-start"><i className="h-1.5 w-1.5 rounded-full bg-[#47c98d] shadow-[0_0_10px_rgba(71,201,141,.6)]" /> Streaming service online</span>
         </div>
       </footer>
     </main>

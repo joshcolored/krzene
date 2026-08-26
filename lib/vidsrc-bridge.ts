@@ -64,6 +64,8 @@ export type VidSrcRemote = {
   play(): void;
   pause(): void;
   setMuted(next: boolean): void;
+  /** Best-effort volume request; older mirrors may only honor mute/unmute. */
+  setVolume(value: number): void;
   /** Absolute position, in seconds. */
   seekTo(seconds: number): void;
   seekBy(delta: number): void;
@@ -269,6 +271,14 @@ export function useVidSrcBridge(
       setMuted(next) {
         send({ player: true, action: next ? "mute" : "unmute" });
         setState((current) => ({ ...current, muted: next }));
+      },
+      setVolume(value) {
+        const normalized = Math.min(Math.max(value, 0), 1);
+        // Current mirrors accept a numeric volume payload. The second command
+        // preserves useful behavior on legacy relays that only know mute.
+        send({ player: true, action: "volume", value: normalized });
+        send({ player: true, action: normalized === 0 ? "mute" : "unmute" });
+        setState((current) => ({ ...current, muted: normalized === 0 }));
       },
       seekTo(value) {
         const target = Math.max(0, Math.round(value));

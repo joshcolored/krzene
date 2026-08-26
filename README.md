@@ -19,6 +19,7 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 
 - Next.js 15 and React 19
 - TypeScript
+- Tailwind CSS 4
 - Supabase Auth, PostgreSQL, and Row Level Security
 - TMDB API
 - VidSrc embeds
@@ -239,4 +240,3 @@ Confirm that the correct viewer profile is selected. Libraries are intentionally
 Catalog metadata and artwork are provided by TMDB. Playback is embedded through VidSrc.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.
-

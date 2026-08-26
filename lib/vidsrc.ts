@@ -26,7 +26,9 @@ export type VidSrcMirror = {
 
 /** Ordered by observed reliability — the first entry is the default. */
 export const VIDSRC_MIRRORS: VidSrcMirror[] = [
-  { id: "vidsrc-me", name: "VidSrc", region: "Global", host: "https://vidsrc.me" },
+  { id: "vsembed-ru", name: "VidSrc", region: "Global", host: "https://vsembed.ru" },
+  { id: "vsembed-su", name: "VidSrc Backup", region: "Global", host: "https://vsembed.su" },
+  { id: "vidsrc-me", name: "VidSrc Legacy", region: "Global", host: "https://vidsrc.me" },
   { id: "vidsrc-to", name: "VidSrc To", region: "EU", host: "https://vidsrc.to" },
   { id: "vidsrc-net", name: "VidSrc Net", region: "US", host: "https://vidsrc.net" },
   { id: "vidsrc-xyz", name: "VidSrc XYZ", region: "Backup", host: "https://vidsrc.xyz" },

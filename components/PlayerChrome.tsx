@@ -36,6 +36,9 @@ import {
 } from "react";
 import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
 
+const CHROME_BUTTON = "chrome-button inline-flex h-[38px] min-w-[38px] shrink-0 cursor-pointer items-center justify-center rounded-[10px] border-0 bg-transparent p-0 text-[#cbc7c1] transition hover:bg-white/14 hover:text-white disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5ad12] [&_svg]:h-[21px] [&_svg]:w-[21px]";
+const ROUND_CHROME_BUTTON = `${CHROME_BUTTON} is-round h-10 min-w-10 rounded-full bg-white/7`;
+
 /* ------------------------------------------------------------------ *
  * Types
  * ------------------------------------------------------------------ */
@@ -467,11 +470,13 @@ export function PlayerChrome({
     const video = videoRef.current;
     setVolume(value);
     setMuted(value === 0);
-    if (video) {
+    if (!isNative) {
+      if (bridge.connected) remote.setVolume(value);
+    } else if (video) {
       video.volume = value;
       video.muted = value === 0;
     }
-  }, []);
+  }, [bridge.connected, isNative, remote]);
 
   const toggleMute = useCallback(() => {
     if (!isNative) {
@@ -604,7 +609,7 @@ export function PlayerChrome({
     <button
       key={panel.id}
       type="button"
-      className={`chrome-button${openPanel === panel.id ? " is-active" : ""}`}
+      className={`${CHROME_BUTTON}${openPanel === panel.id ? " is-active bg-white/20 text-white" : ""}`}
       aria-label={panel.label}
       aria-haspopup="dialog"
       aria-expanded={openPanel === panel.id}
@@ -619,7 +624,7 @@ export function PlayerChrome({
     <div
       ref={pageRef}
       className={[
-        "watch-page",
+        "watch-page relative flex flex-col bg-[#040404]",
         isNative ? "is-native" : "is-embed",
         // Marks a transport that actually moves the picture — a native video or
         // a connected bridge. Fullscreen floats the bars only in that case.
@@ -635,36 +640,36 @@ export function PlayerChrome({
       onPointerLeave={() => live && !overlayVisible && !openPanel && setIdle(true)}
     >
       {/* ------------------------------ top bar ------------------------------ */}
-      <header className="watch-topbar">
-        <Link href={backHref} className="chrome-button is-round" aria-label="Back to browse">
+      <header className="watch-topbar flex items-start gap-[18px] px-[max(26px,calc((100vw_-_1720px)/2))] pt-[22px] pb-4 transition-opacity duration-250 max-[760px]:px-[18px] max-[760px]:pt-4 max-[760px]:pb-3">
+        <Link href={backHref} className={ROUND_CHROME_BUTTON} aria-label="Back to browse">
           <Glyph name="back" />
         </Link>
 
-        <div className="watch-titleblock" hidden={overlayVisible}>
-          <strong className="watch-wordmark">{title}</strong>
-          <span className="watch-kicker">{nowPlaying ? `${kicker} · ${nowPlaying}` : kicker}</span>
+        <div className="flex min-w-0 flex-col gap-[5px] pt-0.5" hidden={overlayVisible}>
+          <strong className="overflow-hidden bg-[linear-gradient(180deg,#ffd463_0%,#f5ad12_55%,#d98908_100%)] bg-clip-text font-display text-[clamp(24px,2.3vw,34px)] leading-none font-extrabold tracking-[-.02em] text-ellipsis whitespace-nowrap text-transparent uppercase">{title}</strong>
+          <span className="text-[10px] font-bold tracking-[.19em] text-[#8a857e] uppercase">{nowPlaying ? `${kicker} · ${nowPlaying}` : kicker}</span>
         </div>
 
-        <div className="watch-topactions" hidden={overlayVisible}>
-          <button type="button" className="chrome-button is-round" aria-label="Watch party" title="Watch party">
+        <div className="ml-auto flex gap-2 pt-0.5 max-[760px]:[&_button:not(:last-child)]:hidden" hidden={overlayVisible}>
+          <button type="button" className={ROUND_CHROME_BUTTON} aria-label="Watch party" title="Watch party">
             <Glyph name="people" />
           </button>
-          <button type="button" className="chrome-button is-round" aria-label="Cast to device" title="Cast to device">
+          <button type="button" className={ROUND_CHROME_BUTTON} aria-label="Cast to device" title="Cast to device">
             <Glyph name="cast" />
           </button>
-          <button type="button" className="chrome-button is-round" aria-label="Playback help" title="Playback help">
+          <button type="button" className={ROUND_CHROME_BUTTON} aria-label="Playback help" title="Playback help">
             <Glyph name="help" />
           </button>
         </div>
       </header>
 
       {/* ------------------------------- stage ------------------------------- */}
-      <div className="watch-stage-wrap">
-        <div className="watch-stage">
+      <div className={`watch-stage-wrap relative px-[max(26px,calc((100vw_-_1720px)/2))] max-[760px]:px-[18px] ${isWide ? "px-0 max-[760px]:px-0" : ""}`}>
+        <div className={`watch-stage relative mx-auto aspect-video w-full overflow-hidden bg-black ${isWide ? "max-h-[calc(100vh_-_200px)] rounded-none" : "max-h-[calc(100vh_-_232px)] rounded-lg max-[1080px]:max-h-none"}`}>
           {isNative ? (
             <video
               ref={videoRef}
-              className="stage-video"
+              className="absolute inset-0 h-full w-full cursor-pointer bg-black object-contain"
               src={source.url}
               playsInline
               preload="metadata"
@@ -692,7 +697,7 @@ export function PlayerChrome({
               <iframe
                 key={source.url}
                 ref={frameRef}
-                className={`stage-frame${bridged ? " is-sealed" : ""}`}
+                className={`absolute inset-0 z-[1] block h-full w-full border-0 bg-black ${bridged ? "pointer-events-none" : ""}`}
                 src={source.url}
                 title={`${title} — ${source.label}`}
                 // `fullscreen` here is what lets the provider's own control work
@@ -709,50 +714,50 @@ export function PlayerChrome({
               at this layer instead of reaching the frame — so the provider's
               own pointermove/pointerdown handlers never wake its title strip or
               control bar, and clicking the picture plays/pauses through us. */}
-          {bridged && <div className="stage-click" onClick={togglePlay} aria-hidden />}
+          {bridged && <div className="absolute inset-0 z-[2] cursor-pointer" onClick={togglePlay} aria-hidden />}
 
           {/* Its chrome still shows once on load, before its own 2.8s auto-hide.
               These bands cover exactly the strips it draws, for exactly as long
               as it says they are up. */}
-          {providerTop && <div className="stage-mask is-top" aria-hidden />}
-          {providerBottom && <div className="stage-mask is-bottom" aria-hidden />}
+          {providerTop && <div className="absolute inset-x-0 top-0 z-[3] h-[max(58px,13%)] bg-black pointer-events-none" aria-hidden />}
+          {providerBottom && <div className="absolute inset-x-0 bottom-0 z-[3] h-[max(66px,16%)] bg-black pointer-events-none" aria-hidden />}
 
           {/* Only before the first play — once running, a native pause should
               show the frozen frame, not artwork over the top of it. */}
           {backdrop && overlayVisible && !started && (
-            <img className="stage-backdrop" src={backdrop} alt="" aria-hidden />
+            <img className="absolute inset-0 h-full w-full object-cover opacity-55" src={backdrop} alt="" aria-hidden />
           )}
 
           {loading && started && (
-            <div className="stage-loading" role="status">
-              <span />
+            <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-3 pointer-events-none [&_b]:text-xs [&_b]:text-[#aaa6a0]" role="status">
+              <span className="h-[30px] w-[30px] animate-spin rounded-full border-2 border-white/18 border-t-white" />
               <b>Loading {source.label}…</b>
             </div>
           )}
 
           {/* ------------------- start / paused overlay ------------------- */}
           {overlayVisible && (
-            <div className="stage-overlay">
-              <p className="overlay-eyebrow">You&apos;re watching</p>
-              <strong className="overlay-title">{title}</strong>
-              <p className="overlay-kicker">{nowPlaying ? `${kicker} · ${nowPlaying}` : kicker}</p>
-              {overview && <p className="overlay-synopsis">{overview}</p>}
-              <div className="overlay-actions">
-                <button type="button" className="resume-button" onClick={togglePlay}>
+            <div className="absolute inset-0 z-[4] flex flex-col items-start justify-end bg-[linear-gradient(90deg,rgba(0,0,0,.93)_0%,rgba(0,0,0,.72)_34%,rgba(0,0,0,.18)_68%,transparent_100%),linear-gradient(0deg,rgba(0,0,0,.86)_0%,transparent_62%)] pb-[clamp(18px,4vh,46px)] pl-[clamp(20px,3vw,44px)]">
+              <p className="mb-3 text-[11px] font-bold tracking-[.2em] text-[#98938c] uppercase">You&apos;re watching</p>
+              <strong className="block max-w-[15ch] bg-[linear-gradient(180deg,#ffd463_0%,#f5ad12_52%,#cf8106_100%)] bg-clip-text font-display text-[clamp(38px,5.4vw,92px)] leading-[.9] font-extrabold tracking-[-.045em] text-transparent uppercase">{title}</strong>
+              <p className="mt-3.5 text-[11px] font-bold tracking-[.19em] text-[#8f8a83] uppercase">{nowPlaying ? `${kicker} · ${nowPlaying}` : kicker}</p>
+              {overview && <p className="mt-3.5 line-clamp-3 max-w-[590px] text-sm leading-[1.62] text-[#c6c1ba]">{overview}</p>}
+              <div className="mt-[26px] flex flex-wrap items-center gap-4">
+                <button type="button" className="inline-flex cursor-pointer items-center gap-2.5 rounded-[10px] border-0 bg-[#f7f5f1] py-[13px] pr-[26px] pl-5 text-[15px] font-bold text-[#111] transition hover:-translate-y-px hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#f5ad12] [&_svg]:h-[17px] [&_svg]:w-[17px]" onClick={togglePlay}>
                   <Glyph name="play" />
                   <span>{live && position > 1 ? "Resume" : "Play"}</span>
                 </button>
-                {resumeLabel && <span className="overlay-position">{resumeLabel}</span>}
+                {resumeLabel && <span className="text-xs text-[#a39e97] tabular-nums">{resumeLabel}</span>}
               </div>
               <div
-                className="overlay-progress"
+                className="mt-[26px] h-0.5 w-[520px] max-w-full rounded-sm bg-[linear-gradient(90deg,#f7f5f1_var(--progress),rgba(255,255,255,.22)_var(--progress))]"
                 style={{ "--progress": `${progress * 100}%` } as CSSProperties}
               />
             </div>
           )}
 
           {overlayVisible && (
-            <div className="paused-flag">
+            <div className="absolute right-[clamp(16px,2.4vw,34px)] bottom-[clamp(14px,3vh,30px)] z-[5] flex items-center gap-2 text-[11px] font-bold tracking-[.19em] text-[#8d8881] uppercase [&_svg]:h-[13px] [&_svg]:w-[13px]">
               <Glyph name={started ? "pause" : "play"} />
               {/* Before the first play there is nothing to have paused, so the
                   only honest state at that point is "ready". */}
@@ -764,7 +769,7 @@ export function PlayerChrome({
         {/* Floating edge control, as in the reference. */}
         <button
           type="button"
-          className="stage-popout chrome-button"
+          className={`${CHROME_BUTTON} stage-popout absolute top-1/2 right-[max(4px,calc((100vw_-_1720px)/2_-_48px))] z-[5] h-[34px] min-w-[42px] -translate-y-1/2 rounded-[9px] border border-white/14 bg-[rgba(20,20,20,.82)] max-[760px]:hidden ${isWide ? "right-[14px]" : ""}`}
           onClick={togglePip}
           aria-label={isNative ? "Picture in picture" : isWide ? "Fit to page" : "Widen player"}
           title={isNative ? "Picture in picture" : isWide ? "Fit to page" : "Widen player"}
@@ -774,10 +779,10 @@ export function PlayerChrome({
       </div>
 
       {/* ---------------------------- control bar ---------------------------- */}
-      <div className="watch-controlbar">
+      <div className="watch-controlbar relative px-[max(26px,calc((100vw_-_1720px)/2))] pt-[18px] pb-5 transition-opacity duration-250 max-[760px]:px-[18px]">
         {live && total > 0 ? (
           <input
-            className="scrub"
+            className="scrub mb-2 block h-[3px] w-full cursor-pointer appearance-none rounded-[3px] border-0 bg-[linear-gradient(90deg,#f4f2ee_var(--progress),rgba(255,255,255,.22)_var(--progress))] outline-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#f5ad12]"
             type="range"
             min={0}
             max={total}
@@ -794,16 +799,16 @@ export function PlayerChrome({
           // Either nothing is loaded yet, or this mirror has no relay and there
           // is no position to report — a rule, not a control that would look
           // interactive and then do nothing.
-          <div className="scrub is-static" aria-hidden />
+          <div className="mb-2 block h-[3px] w-full rounded-[3px] bg-white/16" aria-hidden />
         )}
 
-        <div className="control-row">
-          <div className="control-cluster">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3.5 max-[760px]:gap-px">
+          <div className="flex min-w-0 items-center gap-1">
             {live ? (
               <>
                 <button
                   type="button"
-                  className="chrome-button"
+                  className={CHROME_BUTTON}
                   onClick={togglePlay}
                   aria-label={isPlaying ? "Pause" : "Play"}
                   title={isPlaying ? "Pause (k)" : "Play (k)"}
@@ -812,7 +817,7 @@ export function PlayerChrome({
                 </button>
                 <button
                   type="button"
-                  className="chrome-button"
+                  className={CHROME_BUTTON}
                   onClick={() => seekBy(-10)}
                   aria-label="Back 10 seconds"
                 >
@@ -820,40 +825,38 @@ export function PlayerChrome({
                 </button>
                 <button
                   type="button"
-                  className="chrome-button"
+                  className={CHROME_BUTTON}
                   onClick={() => seekBy(10)}
                   aria-label="Forward 10 seconds"
                 >
                   <Glyph name="forward10" />
                 </button>
-                <div className="volume-pod">
+                <div className="volume-pod flex items-center">
                   <button
                     type="button"
-                    className="chrome-button"
+                    className={CHROME_BUTTON}
                     onClick={toggleMute}
                     aria-label={isMuted ? "Unmute" : "Mute"}
                   >
                     <Glyph name={isMuted ? "mute" : "volume"} />
                   </button>
-                  {/* The embed accepts mute/unmute but reports no level, so the
-                      slider is native-only rather than a control that lies. */}
-                  {isNative && (
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={muted ? 0 : volume}
-                      onChange={(event) => applyVolume(Number(event.target.value))}
-                      aria-label="Volume"
-                    />
-                  )}
+                  <input
+                    className="volume-slider mx-2 h-1 w-[92px] cursor-pointer appearance-none overflow-hidden rounded-full bg-white/28 max-[760px]:w-[64px]"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={isMuted ? 0 : volume}
+                    onChange={(event) => applyVolume(Number(event.target.value))}
+                    aria-label="Volume"
+                    aria-valuetext={`${Math.round((isMuted ? 0 : volume) * 100)}%`}
+                  />
                 </div>
               </>
             ) : (
               <button
                 type="button"
-                className="chrome-button"
+                className={CHROME_BUTTON}
                 onClick={togglePlay}
                 aria-label="Play"
                 title="Play (k)"
@@ -863,7 +866,7 @@ export function PlayerChrome({
             )}
           </div>
 
-          <div className="control-readout">
+          <div className="flex min-w-0 items-center justify-center gap-3.5 [&_time]:text-[12.5px] [&_time]:text-[#f2efea] [&_time]:tabular-nums [&_time_span]:text-[#8f8a83] [&_em]:overflow-hidden [&_em]:text-xs [&_em]:text-ellipsis [&_em]:whitespace-nowrap [&_em]:text-[#8f8a83] [&_em]:not-italic max-[1080px]:[&_em]:hidden">
             {live && total > 0 ? (
               <>
                 <time>
@@ -879,12 +882,12 @@ export function PlayerChrome({
             )}
           </div>
 
-          <div className="control-cluster is-end">
+          <div className="flex min-w-0 items-center justify-end gap-1 max-[760px]:[&_button:nth-last-child(2)]:hidden">
             {onStep && (
               <>
                 <button
                   type="button"
-                  className="chrome-button"
+                  className={CHROME_BUTTON}
                   onClick={() => onStep(-1)}
                   disabled={!canStepBack}
                   aria-label="Previous episode"
@@ -894,7 +897,7 @@ export function PlayerChrome({
                 </button>
                 <button
                   type="button"
-                  className="chrome-button"
+                  className={CHROME_BUTTON}
                   onClick={() => onStep(1)}
                   disabled={!canStepForward}
                   aria-label="Next episode"
@@ -907,7 +910,7 @@ export function PlayerChrome({
             {panels.map(panelButton)}
             <button
               type="button"
-              className={`chrome-button${isWide ? " is-active" : ""}`}
+              className={`${CHROME_BUTTON}${isWide ? " is-active bg-white/20 text-white" : ""}`}
               onClick={togglePip}
               aria-label={isNative ? "Picture in picture" : "Widen player"}
               title={isNative ? "Picture in picture" : "Widen player"}
@@ -916,7 +919,7 @@ export function PlayerChrome({
             </button>
             <button
               type="button"
-              className={`chrome-button${isFullscreen ? " is-active" : ""}`}
+              className={`${CHROME_BUTTON}${isFullscreen ? " is-active bg-white/20 text-white" : ""}`}
               onClick={toggleFullscreen}
               aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
               title={isFullscreen ? "Exit fullscreen (f)" : "Fullscreen (f)"}
@@ -927,14 +930,14 @@ export function PlayerChrome({
         </div>
 
         {activePanel && (
-          <div className="watch-panel" role="dialog" aria-label={activePanel.label}>
-            <header>
+          <div className="watch-panel absolute right-[max(26px,calc((100vw_-_1720px)/2))] bottom-[calc(100%_-_8px)] z-[8] max-h-[min(58vh,460px)] w-[min(340px,calc(100vw_-_52px))] overflow-auto rounded-[14px] border border-white/13 bg-[rgba(15,15,15,.98)] shadow-[0_26px_70px_rgba(0,0,0,.72)] max-[760px]:right-[18px]" role="dialog" aria-label={activePanel.label}>
+            <header className="sticky top-0 flex items-center justify-between border-b border-white/8 bg-[rgba(15,15,15,.98)] px-4 py-3.5 [&_b]:text-[13px]">
               <b>{activePanel.label}</b>
-              <button type="button" onClick={() => setOpenPanel(null)} aria-label="Close">
+              <button className="cursor-pointer border-0 bg-transparent px-1.5 py-1 text-[13px] text-[#8f8a83] hover:text-white" type="button" onClick={() => setOpenPanel(null)} aria-label="Close">
                 ✕
               </button>
             </header>
-            <div className="watch-panel-body">{activePanel.content}</div>
+            <div className="p-3">{activePanel.content}</div>
           </div>
         )}
       </div>
