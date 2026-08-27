@@ -15,27 +15,18 @@ function saveNextOpening(): void {
   window.sessionStorage.setItem(STORAGE_KEY, String(Date.now() + nextDelay()));
 }
 
-export function CatalogSponsorModal({
-  enabled,
-  onOpenPremium,
-}: {
-  enabled: boolean;
-  onOpenPremium: () => void;
-}) {
+export function CatalogSponsorModal({ enabled }: { enabled: boolean }) {
   const [open, setOpen] = useState(false);
   const [secondsUntilClose, setSecondsUntilClose] = useState(CLOSE_DELAY_SECONDS);
 
   const sponsorUrl = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_URL?.trim();
   const sponsorImage = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_IMAGE_URL?.trim();
-  const isDirectSponsor = Boolean(sponsorUrl);
   const title = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_TITLE?.trim()
-    || (isDirectSponsor ? "A message from our sponsor" : "Enjoy Krzene without catalog ads");
+    || "A message from our sponsor";
   const description = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_DESCRIPTION?.trim()
-    || (isDirectSponsor
-      ? "Discover this offer from a Krzene sponsor."
-      : "Upgrade to Premium to remove Krzene display ads and unlock 1080p when available.");
+    || "Discover this offer from a Krzene sponsor.";
   const ctaLabel = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_CTA?.trim()
-    || (isDirectSponsor ? "Visit sponsor" : "See Premium");
+    || "Visit sponsor";
 
   const dismiss = useCallback(() => {
     saveNextOpening();
@@ -86,13 +77,9 @@ export function CatalogSponsorModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [dismiss, open, secondsUntilClose]);
 
-  if (!enabled || !open) return null;
+  if (!sponsorUrl || !enabled || !open) return null;
 
   const closeReady = secondsUntilClose === 0;
-  const openPremium = () => {
-    dismiss();
-    onOpenPremium();
-  };
 
   return (
     <div
@@ -130,32 +117,22 @@ export function CatalogSponsorModal({
 
         <div className="p-8 max-[560px]:px-5 max-[560px]:py-7">
           <span className="inline-flex rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[10px] font-extrabold tracking-[.14em] text-[#a8a39c] uppercase">
-            {isDirectSponsor ? "Sponsored" : "Krzene Premium"}
+            Sponsored
           </span>
           <h2 id="catalog-sponsor-title" className="mt-5 max-w-[390px] font-display text-[31px] leading-[1.05] font-extrabold tracking-[-.04em] max-[560px]:text-[28px]">{title}</h2>
           <p id="catalog-sponsor-description" className="mt-3 max-w-[400px] text-sm leading-relaxed text-[#9b968f]">{description}</p>
 
-          {isDirectSponsor ? (
-            <a
-              className="mt-7 flex min-h-[52px] w-full items-center justify-center rounded-xl bg-[#f5f3ef] px-5 text-sm font-extrabold text-[#101010] transition hover:bg-white active:scale-[.985]"
-              href={sponsorUrl}
-              target="_blank"
-              rel="noopener sponsored"
-              onClick={dismiss}
-            >
-              {ctaLabel}
-            </a>
-          ) : (
-            <button
-              type="button"
-              className="mt-7 flex min-h-[52px] w-full cursor-pointer items-center justify-center rounded-xl border-0 bg-[#f5f3ef] px-5 text-sm font-extrabold text-[#101010] transition hover:bg-white active:scale-[.985]"
-              onClick={openPremium}
-            >
-              {ctaLabel}
-            </button>
-          )}
+          <a
+            className="mt-7 flex min-h-[52px] w-full items-center justify-center rounded-xl bg-[#f5f3ef] px-5 text-sm font-extrabold text-[#101010] transition hover:bg-white active:scale-[.985]"
+            href={sponsorUrl}
+            target="_blank"
+            rel="noopener sponsored"
+            onClick={dismiss}
+          >
+            {ctaLabel}
+          </a>
           <p className="mt-4 text-center text-[10px] leading-relaxed text-[#625f5a]">
-            This catalog promotion never appears during playback. Premium and Kids profiles do not see it.
+            This catalog promotion never appears during playback or on Kids profiles.
           </p>
         </div>
       </section>

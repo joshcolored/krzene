@@ -18,24 +18,6 @@ import { ProfileChooser } from "./ProfileChooser";
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
 type NavItem = (typeof NAV_ITEMS)[number];
 
-type PremiumPlan = {
-  id: string;
-  name: string;
-  priceCentavos: number;
-  currency: string;
-  accessDays: number;
-};
-
-function formatPremiumPrice(plan: PremiumPlan): string {
-  const amount = plan.priceCentavos / 100;
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: plan.currency,
-    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
-
 type IconName =
   | "home"
   | "movie"
@@ -369,11 +351,6 @@ function CatalogHome({
   const [showProfiles, setShowProfiles] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [showPremium, setShowPremium] = useState(false);
-  const [purchasingPremium, setPurchasingPremium] = useState(false);
-  const [premiumMessage, setPremiumMessage] = useState<string | null>(null);
-  const [premiumPlan, setPremiumPlan] = useState<PremiumPlan | null>(null);
-  const [premiumPlanLoading, setPremiumPlanLoading] = useState(false);
   const searchToken = useRef(0);
   const {
     ready: authReady,
@@ -381,41 +358,15 @@ function CatalogHome({
     activeProfile,
     library: savedItems,
     continueWatching,
-    isPremium,
-    premiumUntil,
     authError,
     signInWithGoogle,
     toggleLibrary,
-    refreshPremium,
   } = useAuth();
 
   useEffect(() => {
     if (authReady && user && !activeProfile) setShowProfiles(true);
     if (user) setShowSignIn(false);
   }, [activeProfile, authReady, user]);
-
-  useEffect(() => {
-    if (!showPremium || premiumPlan || premiumPlanLoading) return;
-    setPremiumPlanLoading(true);
-    void fetch("/api/premium/plan", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = (await response.json()) as {
-          plan?: PremiumPlan;
-          error?: string;
-        };
-        if (!response.ok || !payload.plan)
-          throw new Error(payload.error || "Premium plan could not be loaded.");
-        setPremiumPlan(payload.plan);
-      })
-      .catch((error) =>
-        setPremiumMessage(
-          error instanceof Error
-            ? error.message
-            : "Premium plan could not be loaded.",
-        ),
-      )
-      .finally(() => setPremiumPlanLoading(false));
-  }, [premiumPlan, premiumPlanLoading, showPremium]);
 
   const kidsMode = activeProfile?.isKids === true;
   const visibleSavedItems = useMemo(
@@ -475,59 +426,6 @@ function CatalogHome({
       setSigningIn(false);
     }
   };
-
-  const beginPremiumCheckout = async () => {
-    if (!user) {
-      setShowPremium(false);
-      setShowSignIn(true);
-      return;
-    }
-    if (purchasingPremium) return;
-    setPurchasingPremium(true);
-    setPremiumMessage(null);
-    try {
-      const response = await fetch("/api/premium/checkout", { method: "POST" });
-      const payload = (await response.json()) as {
-        checkoutUrl?: string;
-        error?: string;
-      };
-      if (!response.ok || !payload.checkoutUrl)
-        throw new Error(payload.error || "Checkout could not be started.");
-      window.location.assign(payload.checkoutUrl);
-    } catch (error) {
-      setPremiumMessage(
-        error instanceof Error
-          ? error.message
-          : "Checkout could not be started.",
-      );
-      setPurchasingPremium(false);
-    }
-  };
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const result = params.get("premium");
-    if (!result) return;
-    setShowPremium(true);
-    setPremiumMessage(
-      result === "success"
-        ? "Payment completed. We are confirming it securely with PayMongo."
-        : result === "cancelled"
-          ? "Checkout was cancelled. You have not been charged."
-          : null,
-    );
-    window.history.replaceState(
-      {},
-      "",
-      `${window.location.pathname}${window.location.hash}`,
-    );
-    if (result !== "success") return;
-    void refreshPremium();
-    const timers = [2000, 5000, 9000].map((delay) =>
-      window.setTimeout(() => void refreshPremium(), delay),
-    );
-    return () => timers.forEach(window.clearTimeout);
-  }, [refreshPremium]);
 
   // Debounced server-side search keeps the TMDB credential off the client.
   useEffect(() => {
@@ -630,7 +528,7 @@ function CatalogHome({
   const heroArt = activeHero.backdrop ?? activeHero.poster;
   const trimmedQuery = query.trim();
   const searchMode = showSearch || Boolean(trimmedQuery);
-  const adsEnabled = active === "Home" && !kidsMode && !isPremium;
+  const adsEnabled = active === "Home" && !kidsMode;
 
   return (
     <main className="min-h-screen overflow-hidden bg-krzene-bg">
@@ -676,49 +574,6 @@ function CatalogHome({
             aria-expanded={showSearch}
           >
             <UiIcon name="search" /> <span>Search</span>
-          </button>
-          <button
-            type="button"
-            className="group relative h-10 cursor-pointer overflow-hidden rounded-xl border border-[#e7b64d]/30 bg-[#e7b64d]/8 px-4 text-xs font-extrabold text-[#f1cc78] transition-all duration-300 hover:border-[#e7b64d]/50 hover:bg-[#e7b64d]/15 hover:text-white hover:shadow-[0_0_20px_rgba(231,182,77,0.18)] max-[760px]:hidden"
-            onClick={() => setShowPremium(true)}
-          >
-            {/* subtle glow */}
-            <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-[#e7b64d]/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-
-            <span className="relative flex items-center gap-2">
-              {/* Custom premium star */}
-              <span className="relative flex h-5 w-5 items-center justify-center">
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-[17px] w-[17px] fill-[#e7b64d] drop-shadow-[0_0_5px_rgba(231,182,77,0.55)] transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110"
-                >
-                  <path d="M12 2.4l2.05 5.18 5.55.35-4.28 3.55 1.38 5.39L12 13.9l-4.7 2.97 1.38-5.39L4.4 7.93l5.55-.35L12 2.4z" />
-                </svg>
-
-                {/* tiny sparkle top-right */}
-                <svg
-                  viewBox="0 0 20 20"
-                  className="absolute -right-1 -top-1 h-2.5 w-2.5 fill-[#fff1bb] transition-all duration-300 group-hover:scale-125"
-                >
-                  <path d="M10 0c.7 5.8 4.2 9.3 10 10-5.8.7-9.3 4.2-10 10-.7-5.8-4.2-9.3-10-10C5.8 9.3 9.3 5.8 10 0z" />
-                </svg>
-
-                {/* tiny sparkle bottom-left */}
-                <span className="absolute -bottom-0.5 -left-0.5 h-1 w-1 rounded-full bg-[#fff1bb] shadow-[0_0_5px_#e7b64d]" />
-              </span>
-
-              {isPremium ? "Premium" : "Go Premium"}
-
-              {/* Small sparkle on hover */}
-              {!isPremium && (
-                <svg
-                  viewBox="0 0 20 20"
-                  className="h-2.5 w-2.5 fill-[#e7b64d] opacity-50 transition-all duration-300 group-hover:rotate-45 group-hover:scale-125 group-hover:opacity-100"
-                >
-                  <path d="M10 0c.7 5.8 4.2 9.3 10 10-5.8.7-9.3 4.2-10 10-.7-5.8-4.2-9.3-10-10C5.8 9.3 9.3 5.8 10 0z" />
-                </svg>
-              )}
-            </span>
           </button>
           <button
             type="button"
@@ -785,20 +640,6 @@ function CatalogHome({
                 )}
               </button>
             ))}
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full cursor-pointer items-center gap-3 rounded-xl border-0 bg-transparent px-3.5 py-3 text-left text-sm font-bold text-[#e7c46b] transition hover:bg-white/8"
-              onClick={() => {
-                setShowMobileMenu(false);
-                setShowPremium(true);
-              }}
-            >
-              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px]">
-                K
-              </span>
-              <span>{isPremium ? "Premium active" : "Remove ads"}</span>
-            </button>
           </div>
         )}
       </header>
@@ -847,10 +688,7 @@ function CatalogHome({
         onClose={() => setShowProfiles(false)}
       />
 
-      <CatalogSponsorModal
-        enabled={adsEnabled && !showProfiles && !showSignIn && !showPremium}
-        onOpenPremium={() => setShowPremium(true)}
-      />
+      <CatalogSponsorModal enabled={adsEnabled && !showProfiles && !showSignIn} />
 
       {showSignIn && !user && (
         <div
@@ -943,143 +781,6 @@ function CatalogHome({
             )}
             <p className="mt-6 text-[11px] leading-relaxed text-[#66625d]">
               Google is only used to authenticate your Krzene account.
-            </p>
-          </section>
-        </div>
-      )}
-
-      {showPremium && (
-        <div
-          className="ui-modal-enter fixed inset-0 z-100 flex min-h-dvh items-center justify-center bg-black/80 px-5 py-10 backdrop-blur-xl"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !purchasingPremium)
-              setShowPremium(false);
-          }}
-        >
-          <section
-            className="ui-modal-panel-enter relative w-full max-w-[460px] overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(145deg,#1a1917,#0b0b0b)] p-8 shadow-[0_35px_110px_rgba(0,0,0,.8)] max-[560px]:px-5 max-[560px]:py-7"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="premium-title"
-          >
-            <div className="pointer-events-none absolute -top-24 -right-20 h-56 w-56 rounded-full bg-[#e7b64d]/12 blur-3xl" />
-            <button
-              type="button"
-              className="absolute top-4 right-4 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-white/6 text-[#aaa6a0] transition hover:bg-white/13 hover:text-white disabled:opacity-50"
-              onClick={() => setShowPremium(false)}
-              disabled={purchasingPremium}
-              aria-label="Close Premium dialog"
-            >
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <path d="M6 6l12 12M18 6 6 18" />
-              </svg>
-            </button>
-            <span className="inline-flex rounded-full border border-[#e7b64d]/30 bg-[#e7b64d]/10 px-3 py-1 text-[10px] font-extrabold tracking-[.14em] text-[#f1cc78] uppercase">
-              Krzene Premium
-            </span>
-            <h2
-              id="premium-title"
-              className="mt-5 font-display text-[32px] leading-tight font-extrabold tracking-[-.04em]"
-            >
-              {isPremium
-                ? "Your catalog is ad-free"
-                : "Watch with fewer interruptions"}
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-[#9b968f]">
-              Premium removes Krzene&apos;s catalog ads from every standard
-              profile on your account and unlocks 1080p where the stream
-              provides it. Kids profiles never show ads.
-            </p>
-            <div className="my-6 flex items-end gap-2 border-y border-white/8 py-5">
-              <strong className="font-display text-[42px] leading-none">
-                {premiumPlan ? formatPremiumPrice(premiumPlan) : "—"}
-              </strong>
-              <span className="pb-1 text-sm text-[#8e8982]">
-                {premiumPlan
-                  ? `for ${premiumPlan.accessDays} days`
-                  : premiumPlanLoading
-                    ? "loading plan…"
-                    : "plan unavailable"}
-              </span>
-            </div>
-            <ul className="space-y-3 text-sm text-[#d1cdc7]">
-              <li className="flex gap-3">
-                <span className="text-[#47c98d]">✓</span>
-                <span>No Krzene display ads on the catalog</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="text-[#47c98d]">✓</span>
-                <span>Applies to every non-Kids profile on your account</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="text-[#47c98d]">✓</span>
-                <span>1080p playback when the selected stream offers it</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="text-[#47c98d]">✓</span>
-                <span>Secure hosted checkout powered by PayMongo</span>
-              </li>
-            </ul>
-            {isPremium && premiumUntil && (
-              <p className="mt-5 rounded-xl border border-[#47c98d]/20 bg-[#47c98d]/8 px-4 py-3 text-xs text-[#83ddb3]">
-                Active until{" "}
-                {new Intl.DateTimeFormat("en-PH", { dateStyle: "long" }).format(
-                  new Date(premiumUntil),
-                )}
-                .
-                {premiumPlan
-                  ? ` Another payment adds ${premiumPlan.accessDays} more days.`
-                  : ""}
-              </p>
-            )}
-            {premiumMessage && (
-              <p
-                className={`mt-5 rounded-xl border px-4 py-3 text-xs leading-relaxed ${isPremium ? "border-[#47c98d]/20 bg-[#47c98d]/8 text-[#83ddb3]" : "border-white/9 bg-white/5 text-[#bbb6af]"}`}
-              >
-                {isPremium
-                  ? "Premium is active. Ads are now off."
-                  : premiumMessage}
-              </p>
-            )}
-            <button
-              type="button"
-              className="mt-7 flex min-h-[54px] w-full cursor-pointer items-center justify-center gap-2.5 rounded-xl border-0 bg-[#f5f3ef] px-5 font-extrabold text-[#101010] transition hover:bg-white active:scale-[.985] disabled:cursor-wait disabled:opacity-70"
-              onClick={() => void beginPremiumCheckout()}
-              disabled={
-                purchasingPremium ||
-                Boolean(user && (!premiumPlan || premiumPlanLoading))
-              }
-            >
-              {purchasingPremium && (
-                <span
-                  className="h-5 w-5 animate-spin rounded-full border-2 border-black/20 border-t-black"
-                  aria-hidden="true"
-                />
-              )}
-              <span>
-                {purchasingPremium
-                  ? "Opening PayMongo…"
-                  : isPremium && premiumPlan
-                    ? `Add another ${premiumPlan.accessDays} days`
-                    : user
-                      ? premiumPlanLoading
-                        ? "Loading plan…"
-                        : "Continue to PayMongo"
-                      : "Sign in to continue"}
-              </span>
-            </button>
-            <p className="mt-4 text-center text-[10px] leading-relaxed text-[#625f5a]">
-              {premiumPlan
-                ? `This is a one-time ${formatPremiumPrice(premiumPlan)} payment for ${premiumPlan.accessDays} days and does not auto-renew.`
-                : "Price and access duration are loaded securely from the active Supabase plan."}
             </p>
           </section>
         </div>
@@ -1499,9 +1200,6 @@ function CatalogHome({
               }
             >
               {user ? "Switch profile" : "Sign in with Google"}
-            </button>
-            <button onClick={() => setShowPremium(true)}>
-              {isPremium ? "Premium active" : "Remove ads"}
             </button>
           </div>
 

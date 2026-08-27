@@ -13,8 +13,7 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - Separate Supabase-backed library for every profile
 - Signed-in-only libraries, hidden from guests
 - Row Level Security protecting profile and library data
-- database-priced Premium access with server-verified PayMongo checkout
-- Privacy-aware manual AdSense placements (disabled for Kids and Premium)
+- Privacy-aware manual AdSense placements (disabled for Kids profiles)
 - Vercel-ready OAuth callback and session middleware
 
 ## Technology
@@ -33,7 +32,6 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - A [Supabase](https://supabase.com/) project
 - A Google Cloud project for OAuth
 - A Vercel account for deployment (optional)
-- A PayMongo account for Premium payments
 - A Google AdSense account for ads (optional)
 
 ## Local installation
@@ -50,10 +48,6 @@ Copy `.env.example` to `.env.local` and provide real values:
 TMDB_API_KEY=your_tmdb_key
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-APP_URL=http://localhost:3000
-PAYMONGO_SECRET_KEY=sk_test_your_secret_key
-PAYMONGO_WEBHOOK_SECRET=whsk_your_test_webhook_secret
 ```
 
 Use a Supabase publishable key (`sb_publishable_...`) in the public variable. Never put a service-role key or another secret key in a `NEXT_PUBLIC_` variable.
@@ -73,7 +67,6 @@ Open the Supabase SQL Editor and run all migrations in order:
 ```text
 supabase/migrations/20260826000000_profiles_and_libraries.sql
 supabase/migrations/20260827000000_watch_progress.sql
-supabase/migrations/20260828000000_premium_access.sql
 ```
 
 The migration creates:
@@ -81,11 +74,10 @@ The migration creates:
 - `viewer_profiles` for the profiles belonging to each authenticated account
 - `library_items` for saved titles belonging to a specific viewer profile
 - `watch_progress` for the signed-in profile's Continue Watching rail
-- `premium_subscriptions`, checkout records, and idempotent webhook records
 - Foreign keys and indexes
 - Row Level Security policies for selecting, creating, editing, and deleting data
 
-Keep Row Level Security enabled. Browser requests use the signed-in session. The service-role key is used only by server routes to record PayMongo checkout sessions and activate Premium after a verified webhook; never expose it through a `NEXT_PUBLIC_` variable.
+Keep Row Level Security enabled. Browser requests use the signed-in session, and all profile-owned data remains protected by its policies.
 
 ## Google authentication
 
@@ -166,75 +158,9 @@ After the callback exchanges the OAuth code for a secure session, Krzene loads o
 
 Signed-out visitors can still save titles locally. Signed-in profile libraries are stored in Supabase and protected by Row Level Security.
 
-## Premium and PayMongo setup
-
-Krzene sells Premium as a one-time PayMongo Hosted Checkout. Its price and access duration come from the active `premium_plans` row in Supabase, so they can change without a redeploy. It does not silently auto-renew. A customer can renew early; every successful payment adds the plan's current access period after the account's current expiry.
-
-### 1. Prepare PayMongo
-
-1. Create or activate your merchant at [PayMongo](https://dashboard.paymongo.com/).
-2. Complete the required business/KYC steps.
-3. Open **Developers → API Keys** and copy the **test secret key** (`sk_test_...`).
-4. Put it in `.env.local` as `PAYMONGO_SECRET_KEY`. Never prefix this variable with `NEXT_PUBLIC_`.
-5. Set the methods enabled for your account. The default is:
-
-```dotenv
-PAYMONGO_PAYMENT_METHODS=qrph
-```
-
-If checkout reports that a method is unavailable, remove that method until PayMongo activates it for the account.
-
-### 2. Create the webhook
-
-Deploy once so the endpoint is public, then in **PayMongo Dashboard → Developers → Webhooks → Add endpoint** enter:
-
-```text
-https://krzene.site/api/paymongo/webhook
-```
-
-Subscribe only to:
-
-```text
-checkout_session.payment.paid
-```
-
-Copy the endpoint's signing secret (`whsk_...`) into Vercel as `PAYMONGO_WEBHOOK_SECRET`. This is different from the PayMongo API secret key. The route verifies `Paymongo-Signature` against the raw request body with HMAC-SHA256 before touching Supabase, and records each event ID once so retries cannot add duplicate access.
-
-For local webhook testing, use a public HTTPS tunnel and create a separate **test-mode** webhook for that tunnel. PayMongo cannot deliver to `localhost` directly.
-
-### 3. Configure the server secrets
-
-In Vercel, add these as **server-only** variables for Production (and Preview only if you intend to test there):
-
-```dotenv
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-APP_URL=https://krzene.site
-PAYMONGO_SECRET_KEY=sk_test_...
-PAYMONGO_WEBHOOK_SECRET=whsk_...
-PAYMONGO_PAYMENT_METHODS=qrph
-```
-
-Get the service-role key from **Supabase → Project Settings → API Keys**. It bypasses RLS and must never be copied into browser code, committed, or given a `NEXT_PUBLIC_` name.
-
-### 4. Test before going live
-
-1. Apply `20260828000000_premium_access.sql`.
-2. Deploy the environment variables.
-3. Sign in, open **Go Premium**, and complete a PayMongo test checkout.
-4. In PayMongo, confirm the webhook received a `2xx` response.
-5. In Supabase, confirm the checkout is `paid` and `premium_subscriptions.current_period_end` advanced by the purchased plan's `access_days` value.
-6. Refresh the catalog and confirm the Premium badge appears and both ad units disappear.
-7. Repeat the same event from PayMongo's delivery tools and confirm the expiry is **not** extended twice.
-
-When ready, replace `sk_test_...` with the live key and register a separate live webhook. Never test the payment code first with a live key.
-
-### Optional true monthly auto-renewal
-
-PayMongo has a Subscriptions API, but PayMongo must enable it for the merchant account. Scheduled subscriptions require a reusable Plan, Customer, and initial payment flow. Contact PayMongo support before changing this implementation. Until then, the UI intentionally presents the database-configured one-time price and access period and **does not auto-renew**.
-
 ## AdSense setup
 
-The app only creates manual ad units on the homepage catalog. It does not add ads to `/watch/*`, `/auth/*`, `/offline`, Premium accounts, or Kids profiles.
+The app only creates manual ad units on the homepage catalog. It does not add ads to `/watch/*`, `/auth/*`, `/offline`, or Kids profiles.
 
 1. In AdSense, keep **Auto ads**, overlay, vignette, anchor, and popup-style formats disabled.
 2. Create two responsive **Display ad** units.
@@ -254,15 +180,15 @@ google.com, pub-5965941687701015, DIRECT, f08c47fec0942fa0
 ```
 
 5. Review `/privacy`, `/terms`, `/contact`, and `/copyright`. Replace the support email with a monitored address before launch.
-6. Configure a consent message/CMP in AdSense for every region where consent is required. Premium removes display ads, but it does not replace your privacy and consent obligations.
+6. Configure a consent message/CMP in AdSense for every region where consent is required.
 
 Ad inventory can be empty in test or newly approved accounts. Ad blockers can also hide units; neither case should affect catalog layout or playback.
 
 ### Optional timed sponsor promotion
 
-The catalog can show a direct-sponsor promotion after a random delay of five to eight minutes. Its close control unlocks after five seconds, and the next promotion is scheduled at least five minutes later. It is disabled on Watch pages, Kids profiles, and Premium accounts.
+The catalog can show a direct-sponsor promotion after a random delay of five to eight minutes. Its close control unlocks after five seconds, and the next promotion is scheduled at least five minutes later. It is disabled on Watch pages and Kids profiles.
 
-Do not place AdSense code in this modal. Google prohibits AdSense ads in popups. To use the modal for a direct sponsor, configure these optional public variables; without a sponsor URL it promotes Krzene Premium instead:
+Do not place AdSense code in this modal. Google prohibits AdSense ads in popups. To use the modal for a direct sponsor, configure these optional public variables. Without a sponsor URL, the modal remains disabled:
 
 ```dotenv
 NEXT_PUBLIC_CATALOG_SPONSOR_URL=https://sponsor.example/offer
@@ -282,16 +208,6 @@ Add these variables to Production, Preview, and Development:
 TMDB_API_KEY
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-```
-
-Add the payment server secrets and final application URL to Production:
-
-```text
-SUPABASE_SERVICE_ROLE_KEY
-APP_URL=https://krzene.site
-PAYMONGO_SECRET_KEY
-PAYMONGO_WEBHOOK_SECRET
-PAYMONGO_PAYMENT_METHODS
 ```
 
 OAuth callbacks automatically use the origin where sign-in begins. This keeps custom-domain sessions on `https://krzene.site` and preview sessions on their own Vercel URL.
