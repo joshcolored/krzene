@@ -226,11 +226,11 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
       {connected && (
         <>
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[4%] min-h-12 bg-[linear-gradient(transparent,rgba(0,0,0,.94)_2%,#000_12%)] max-[520px]:h-[4%]"
+            className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[4%] min-h-12 bg-[linear-gradient(transparent,rgba(0,0,0,.94)_2%,#000_12%)] max-[520px]:h-[4%] max-[520px]:min-h-5"
             aria-hidden="true"
           />
           <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-[11] h-[4%] min-h-12 bg-[linear-gradient(transparent,rgba(0,0,0,.94)_2%,#000_12%)] max-[520px]:h-[4%]"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[11] h-[4%] min-h-12 bg-[linear-gradient(transparent,rgba(0,0,0,.94)_2%,#000_12%)] max-[520px]:h-[4%] max-[520px]:min-h-6"
             aria-hidden="true"
           />
         </>
