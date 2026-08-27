@@ -192,14 +192,14 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
         </header>
 
         <PlayerChrome playback={playback} remote={remote} title={detail.title}>
+          {/* Keep VidSrc inline on mobile; PlayerChrome owns fullscreen. */}
           <iframe
             key={sourceUrl}
             ref={frameRef}
             className="block h-full w-full border-0 bg-black"
             src={sourceUrl}
             title={`${detail.title} — ${mirror.name}`}
-            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-            allowFullScreen
+            allow="autoplay; picture-in-picture; encrypted-media"
             referrerPolicy="origin"
             tabIndex={-1}
           />

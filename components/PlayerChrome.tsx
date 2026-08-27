@@ -53,8 +53,17 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
   const [visible, setVisible] = useState(true);
   const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [touchDevice, setTouchDevice] = useState(false);
   const connected = playback.connected;
   const fullscreen = pseudoFullscreen || nativeFullscreen;
+
+  useEffect(() => {
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const sync = () => setTouchDevice(coarse.matches || navigator.maxTouchPoints > 0);
+    sync();
+    coarse.addEventListener?.("change", sync);
+    return () => coarse.removeEventListener?.("change", sync);
+  }, []);
 
   const wake = useCallback(() => {
     setVisible(true);
@@ -230,8 +239,8 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
           surface. Cross-origin iframe CSS cannot remove those glyphs, so a
           touch-only paused surface keeps them permanently out of view while
           preserving Krzene's controls above it. */}
-      {connected && !playback.playing && (
-        <div className="pointer-events-none absolute inset-0 z-[12] hidden items-center justify-center bg-black [@media(pointer:coarse)]:flex" aria-hidden="true">
+      {connected && touchDevice && !playback.playing && (
+        <div className="pointer-events-none absolute inset-0 z-[12] flex items-center justify-center bg-black" aria-hidden="true">
           <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-white/8 text-white shadow-2xl backdrop-blur-xl [&_svg]:h-7 [&_svg]:w-7">
             <Glyph name="play" />
           </span>
