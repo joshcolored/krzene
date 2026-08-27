@@ -44,7 +44,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
   const [subtitle, setSubtitle] = useState("en");
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const { ready: authReady, activeProfile, library, toggleLibrary, saveWatchProgress } = useAuth();
+  const { ready: authReady, user, activeProfile, library, toggleLibrary, saveWatchProgress } = useAuth();
   const saved = library.some((item) => item.key === detail.key);
 
   const isSeries = detail.kind === "tv";
@@ -346,9 +346,11 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
         </div>
 
         <aside className="flex flex-col pt-[30px] max-[1080px]:pt-0">
-          <button className="w-full cursor-pointer rounded-xl border-0 bg-[#f2f0ec] px-[18px] py-[14px] font-extrabold text-[#111]" onClick={() => void toggleLibrary(stripDetail(detail))}>
-            {saved ? "✓ Saved to my list" : "+ Add to my list"}
-          </button>
+          {user && activeProfile && (
+            <button className="w-full cursor-pointer rounded-xl border-0 bg-[#f2f0ec] px-[18px] py-[14px] font-extrabold text-[#111]" onClick={() => void toggleLibrary(stripDetail(detail))}>
+              {saved ? "✓ Saved to my list" : "+ Add to my list"}
+            </button>
+          )}
           <div className="mt-7 border-t border-white/9 pt-[22px]">
             <b className="text-[13px]">Source</b>
             <p className="text-xs leading-relaxed text-[#77736e]">

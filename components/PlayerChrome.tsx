@@ -19,6 +19,10 @@ type FullNode = HTMLDivElement & {
   webkitRequestFullscreen?: () => Promise<void> | void;
 };
 
+type StandaloneNavigator = Navigator & {
+  standalone?: boolean;
+};
+
 const BUTTON = "inline-flex h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl border-0 bg-transparent p-0 text-white transition hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5ad12] disabled:cursor-default disabled:opacity-30 [&_svg]:h-[21px] [&_svg]:w-[21px]";
 
 function clock(value: number) {
@@ -82,13 +86,26 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
     if (!pseudoFullscreen) return;
     const body = document.body.style.overflow;
     const root = document.documentElement.style.overflow;
+    const overscroll = document.body.style.overscrollBehavior;
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
     return () => {
       document.body.style.overflow = body;
       document.documentElement.style.overflow = root;
+      document.body.style.overscrollBehavior = overscroll;
     };
   }, [pseudoFullscreen]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const exitWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (pseudoFullscreen) setPseudoFullscreen(false);
+    };
+    window.addEventListener("keydown", exitWithKeyboard);
+    return () => window.removeEventListener("keydown", exitWithKeyboard);
+  }, [fullscreen, pseudoFullscreen]);
 
   const togglePlay = useCallback(() => {
     playback.playing ? remote.pause() : remote.play();
@@ -107,14 +124,47 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
       Promise.resolve(doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.()).catch(() => setPseudoFullscreen(false));
       return;
     }
+
+    const nav = navigator as StandaloneNavigator;
+    const appleTouchDevice =
+      /iPad|iPhone|iPod/i.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const standalone =
+      nav.standalone === true
+      || window.matchMedia("(display-mode: standalone)").matches;
+    const mobileTouch =
+      navigator.maxTouchPoints > 0
+      && Math.min(window.screen.width, window.screen.height) <= 1024;
+
+    // Safari on iPhone and installed PWAs can expose a fullscreen method that
+    // silently does nothing for a non-video element. Use a viewport-fixed
+    // player immediately on those devices so the button always responds.
+    if (appleTouchDevice || standalone || mobileTouch) {
+      setPseudoFullscreen(true);
+      return;
+    }
+
     const request = node.requestFullscreen?.bind(node) ?? node.webkitRequestFullscreen?.bind(node);
     if (!request) {
       setPseudoFullscreen(true);
       return;
     }
+
+    const fallback = window.setTimeout(() => {
+      if (!doc.fullscreenElement && !doc.webkitFullscreenElement) setPseudoFullscreen(true);
+    }, 600);
+
     try {
-      Promise.resolve(request()).catch(() => setPseudoFullscreen(true));
+      Promise.resolve(request())
+        .then(() => {
+          if (doc.fullscreenElement || doc.webkitFullscreenElement) window.clearTimeout(fallback);
+        })
+        .catch(() => {
+          window.clearTimeout(fallback);
+          setPseudoFullscreen(true);
+        });
     } catch {
+      window.clearTimeout(fallback);
       setPseudoFullscreen(true);
     }
   }, [pseudoFullscreen]);
@@ -123,8 +173,10 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
     <div
       ref={stageRef}
       className={[
-        "relative aspect-video w-full overflow-hidden bg-black",
-        pseudoFullscreen ? "fixed inset-0 z-[120] h-dvh w-screen rounded-none" : "rounded-lg max-[760px]:rounded-md",
+        "overflow-hidden bg-black",
+        pseudoFullscreen
+          ? "fixed inset-0 z-[2147483000] h-[100dvh] w-[100vw] max-w-none rounded-none"
+          : "relative aspect-video w-full rounded-lg max-[760px]:rounded-md",
       ].join(" ")}
       onPointerMove={wake}
       onPointerDown={wake}
@@ -151,10 +203,13 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
       {connected && (playback.barVisible || playback.chromeVisible) && <div className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[15%] bg-[linear-gradient(#000_15%,rgba(0,0,0,.88)_62%,transparent)]" aria-hidden="true" />}
       {connected && playback.chromeVisible && <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[11] h-[22%] bg-[linear-gradient(transparent,rgba(0,0,0,.92)_48%,#000)]" aria-hidden="true" />}
 
-      <div className={[
+      <div
+        className={[
         "absolute inset-x-0 bottom-0 z-20 bg-[linear-gradient(transparent,rgba(0,0,0,.9)_40%,#000)] px-3 pt-12 pb-2 transition-opacity duration-200 max-[520px]:px-1.5 max-[520px]:pt-8",
         visible || !playback.playing ? "opacity-100" : "pointer-events-none opacity-0",
-      ].join(" ")}>
+        ].join(" ")}
+        style={pseudoFullscreen ? { paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))" } : undefined}
+      >
         {connected && playback.duration > 0 ? (
           <input
             className="block h-5 w-full cursor-pointer accent-[#f5ad12]"

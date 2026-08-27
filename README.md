@@ -11,7 +11,7 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - Google sign-in through Supabase Auth
 - Multiple viewer profiles per account
 - Separate Supabase-backed library for every profile
-- Local-storage library fallback for signed-out visitors
+- Signed-in-only libraries, hidden from guests
 - Row Level Security protecting profile and library data
 - ₱50 Premium access with server-verified PayMongo checkout
 - Privacy-aware manual AdSense placements (disabled for Kids and Premium)
@@ -257,6 +257,20 @@ google.com, pub-5965941687701015, DIRECT, f08c47fec0942fa0
 6. Configure a consent message/CMP in AdSense for every region where consent is required. Premium removes display ads, but it does not replace your privacy and consent obligations.
 
 Ad inventory can be empty in test or newly approved accounts. Ad blockers can also hide units; neither case should affect catalog layout or playback.
+
+### Optional timed sponsor promotion
+
+The catalog can show a direct-sponsor promotion after a random delay of five to eight minutes. Its close control unlocks after five seconds, and the next promotion is scheduled at least five minutes later. It is disabled on Watch pages, Kids profiles, and Premium accounts.
+
+Do not place AdSense code in this modal. Google prohibits AdSense ads in popups. To use the modal for a direct sponsor, configure these optional public variables; without a sponsor URL it promotes Krzene Premium instead:
+
+```dotenv
+NEXT_PUBLIC_CATALOG_SPONSOR_URL=https://sponsor.example/offer
+NEXT_PUBLIC_CATALOG_SPONSOR_TITLE=Sponsor offer title
+NEXT_PUBLIC_CATALOG_SPONSOR_DESCRIPTION=A short and accurate description of the offer.
+NEXT_PUBLIC_CATALOG_SPONSOR_CTA=View offer
+NEXT_PUBLIC_CATALOG_SPONSOR_IMAGE_URL=https://sponsor.example/creative.jpg
+```
 
 ## Vercel deployment
 

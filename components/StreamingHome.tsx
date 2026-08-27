@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isKidsMedia, watchHref, type HomeData, type Media, type MediaDetail, type MediaRail } from "@/lib/media";
 import { AdSenseUnit } from "./AdSenseUnit";
 import { useAuth } from "./AuthProvider";
+import { CatalogSponsorModal } from "./CatalogSponsorModal";
 import { ProfileChooser } from "./ProfileChooser";
 
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
@@ -66,7 +67,7 @@ function clockLabel(seconds: number): string {
     : `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
-function MediaCard({ media, saved, onSave }: { media: Media; saved: boolean; onSave: () => void }) {
+function MediaCard({ media, saved, canSave, onSave }: { media: Media; saved: boolean; canSave: boolean; onSave: () => void }) {
   const art = artFor(media);
   return (
     <article className="min-w-0 shrink-0 basis-[calc((100%_-_64px)/5)] snap-start max-[1080px]:basis-[calc((100%_-_32px)/3)] max-[760px]:basis-[74vw]">
@@ -78,17 +79,19 @@ function MediaCard({ media, saved, onSave }: { media: Media; saved: boolean; onS
         {media.score > 0 && <span className="absolute bottom-[10px] left-[10px] rounded-[5px] border border-white/16 bg-black/72 px-[5px] py-[3px] text-[9px] font-extrabold">★ {media.score.toFixed(1)}</span>}
       </Link>
       <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden px-[3px] pt-3">
-        <div className="w-[calc(100%_-_37px)] min-w-0 flex-[0_1_calc(100%_-_37px)] overflow-hidden">
+        <div className={`min-w-0 overflow-hidden ${canSave ? "w-[calc(100%_-_37px)] flex-[0_1_calc(100%_-_37px)]" : "w-full flex-1"}`}>
           <h3 className="block w-full max-w-full overflow-hidden text-sm font-bold text-ellipsis whitespace-nowrap" title={media.title}>{media.title}</h3>
           <p className="m-0 text-[11px] text-[#77746f]">{subtitleFor(media)}</p>
         </div>
-        <button
-          className={`ml-auto h-[29px] w-[29px] shrink-0 cursor-pointer rounded-full border border-[#343331] bg-transparent hover:bg-white hover:text-black ${saved ? "bg-white text-black" : ""}`}
-          onClick={onSave}
-          aria-label={saved ? `Remove ${media.title} from watchlist` : `Add ${media.title} to watchlist`}
-        >
-          <span className="flex items-center justify-center text-base"><UiIcon name={saved ? "check" : "plus"} /></span>
-        </button>
+        {canSave && (
+          <button
+            className={`ml-auto h-[29px] w-[29px] shrink-0 cursor-pointer rounded-full border border-[#343331] bg-transparent hover:bg-white hover:text-black ${saved ? "bg-white text-black" : ""}`}
+            onClick={onSave}
+            aria-label={saved ? `Remove ${media.title} from watchlist` : `Add ${media.title} to watchlist`}
+          >
+            <span className="flex items-center justify-center text-base"><UiIcon name={saved ? "check" : "plus"} /></span>
+          </button>
+        )}
       </div>
     </article>
   );
@@ -98,11 +101,13 @@ function Rail({
   rail,
   first,
   savedKeys,
+  canSave,
   onSave,
 }: {
   rail: MediaRail;
   first: boolean;
   savedKeys: Set<string>;
+  canSave: boolean;
   onSave: (media: Media) => void;
 }) {
   const railRef = useRef<HTMLDivElement>(null);
@@ -133,7 +138,7 @@ function Rail({
       </div>
       <div className="media-rail flex snap-x snap-proximity gap-4 overflow-x-auto overscroll-x-contain px-0 pt-[2px] pb-[10px] [scroll-padding-left:2px] max-[760px]:mr-[-20px] max-[760px]:pr-5" ref={railRef}>
         {rail.items.map((media) => (
-          <MediaCard key={media.key} media={media} saved={savedKeys.has(media.key)} onSave={() => onSave(media)} />
+          <MediaCard key={media.key} media={media} saved={savedKeys.has(media.key)} canSave={canSave} onSave={() => onSave(media)} />
         ))}
       </div>
     </section>
@@ -232,8 +237,22 @@ function CatalogHome({
     [kidsMode, rails],
   );
   const savedKeys = useMemo(() => new Set(visibleSavedItems.map((item) => item.key)), [visibleSavedItems]);
+  const visibleNavItems = useMemo(
+    () => user ? [...NAV_ITEMS] : NAV_ITEMS.filter((item) => item !== "Library"),
+    [user],
+  );
 
-  const toggleSaved = useCallback((media: Media) => void toggleLibrary(media), [toggleLibrary]);
+  const toggleSaved = useCallback((media: Media) => {
+    if (!user || !activeProfile) {
+      setShowSignIn(true);
+      return;
+    }
+    void toggleLibrary(media);
+  }, [activeProfile, toggleLibrary, user]);
+
+  useEffect(() => {
+    if (!user && active === "Library") setActive("Home");
+  }, [active, user]);
 
   const beginGoogleSignIn = async () => {
     if (signingIn) return;
@@ -368,7 +387,7 @@ function CatalogHome({
           <img className="h-full w-full" src="/krzene-mark.svg" alt="" />
         </Link>
         <nav className="flex flex-1 justify-center gap-0.5 max-[760px]:justify-around" aria-label="Primary navigation">
-          {NAV_ITEMS.map((item) => (
+          {visibleNavItems.map((item) => (
             <button key={item} className={`flex cursor-pointer items-center gap-[7px] rounded-[13px] border-0 px-3.5 py-3 text-[13px] font-bold text-[#9e9b97] transition hover:bg-white/12 hover:text-white max-[1080px]:px-[9px] max-[1080px]:[&_.nav-icon]:hidden max-[760px]:hidden ${active === item ? "bg-white/12 text-white" : "bg-transparent"}`} onClick={() => setActive(item)} aria-pressed={active === item}>
               <span className="nav-icon text-[17px] font-normal text-[#aaa6a0]" aria-hidden="true">
                 <UiIcon name={NAV_ICONS[item]} />
@@ -417,7 +436,7 @@ function CatalogHome({
 
         {showMobileMenu && (
           <div className="ui-menu-enter absolute top-[calc(100%_+_8px)] right-0 hidden w-[220px] origin-top-right flex-col gap-1 rounded-2xl border border-white/10 bg-[rgba(14,14,14,.98)] p-2 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-2xl max-[760px]:flex" role="menu">
-            {NAV_ITEMS.map((item) => (
+            {visibleNavItems.map((item) => (
               <button
                 key={item}
                 type="button"
@@ -478,6 +497,11 @@ function CatalogHome({
       )}
 
       <ProfileChooser open={showProfiles} onClose={() => setShowProfiles(false)} />
+
+      <CatalogSponsorModal
+        enabled={adsEnabled && !showProfiles && !showSignIn && !showPremium}
+        onOpenPremium={() => setShowPremium(true)}
+      />
 
       {showSignIn && !user && (
         <div
@@ -613,10 +637,12 @@ function CatalogHome({
                 <><span className="text-lg"><UiIcon name="play" /></span><span>Watch now</span></>
               )}
             </Link>
-            <button className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] border-0 bg-white/12 px-5 py-3.5 font-extrabold text-white backdrop-blur-[10px] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm" onClick={() => toggleSaved(activeHero)}>
-              <span className="text-lg"><UiIcon name={savedKeys.has(activeHero.key) ? "check" : "plus"} /></span>
-              <span>{savedKeys.has(activeHero.key) ? "In my list" : "My list"}</span>
-            </button>
+            {user && activeProfile && (
+              <button className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] border-0 bg-white/12 px-5 py-3.5 font-extrabold text-white backdrop-blur-[10px] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm" onClick={() => toggleSaved(activeHero)}>
+                <span className="text-lg"><UiIcon name={savedKeys.has(activeHero.key) ? "check" : "plus"} /></span>
+                <span>{savedKeys.has(activeHero.key) ? "In my list" : "My list"}</span>
+              </button>
+            )}
           </div>
           {featureFilms.length > 1 && (
             <div className="mt-5 flex items-center gap-3" aria-label="Feature film carousel controls">
@@ -658,6 +684,7 @@ function CatalogHome({
                     key={media.key}
                     media={media}
                     saved={savedKeys.has(media.key)}
+                    canSave={Boolean(user && activeProfile)}
                     onSave={() => toggleSaved(media)}
                   />
                 ))}
@@ -677,7 +704,7 @@ function CatalogHome({
             {visibleSavedItems.length ? (
               <div className="grid grid-cols-5 gap-4 max-[1080px]:grid-cols-3 max-[760px]:mr-[-20px] max-[760px]:flex max-[760px]:overflow-x-auto max-[760px]:pr-5 max-[760px]:[scrollbar-width:none]">
                 {visibleSavedItems.map((media) => (
-                  <MediaCard key={media.key} media={media} saved onSave={() => toggleSaved(media)} />
+                  <MediaCard key={media.key} media={media} saved canSave onSave={() => toggleSaved(media)} />
                 ))}
               </div>
             ) : (
@@ -759,6 +786,7 @@ function CatalogHome({
                   rail={rail}
                   first={index === 0 && active !== "Home"}
                   savedKeys={savedKeys}
+                  canSave={Boolean(user && activeProfile)}
                   onSave={toggleSaved}
                 />
               </div>
@@ -792,10 +820,12 @@ function CatalogHome({
 
           <div className="flex flex-col items-start gap-[11px] [&_button]:cursor-pointer [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-left [&_button]:text-xs [&_button]:text-[#77736e] [&_button]:transition-colors hover:[&_button]:text-white">
             <h3 className="mb-[7px] font-display text-xs font-bold tracking-[.08em] text-[#d8d4ce] uppercase">Your Krzene</h3>
-            <button onClick={() => {
-              setActive("Library");
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}>My library</button>
+            {user && (
+              <button onClick={() => {
+                setActive("Library");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}>My library</button>
+            )}
             <button onClick={() => user ? setShowProfiles(true) : setShowSignIn(true)}>
               {user ? "Switch profile" : "Sign in with Google"}
             </button>

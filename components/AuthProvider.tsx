@@ -6,8 +6,6 @@ import type { Media } from "@/lib/media";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-const WATCHLIST_KEY = "wmn-watchlist-v2";
-
 export type ViewerProfile = {
   id: string;
   ownerId: string;
@@ -59,14 +57,6 @@ function fromRow(row: Record<string, unknown>): ViewerProfile {
     avatarColor: typeof row.avatar_color === "string" ? row.avatar_color : "#e21927",
     isKids: Boolean(row.is_kids),
   };
-}
-
-function readLocalLibrary(): Media[] {
-  try {
-    return JSON.parse(window.localStorage.getItem(WATCHLIST_KEY) || "[]") as Media[];
-  } catch {
-    return [];
-  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -174,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) {
-      setLibrary(readLocalLibrary());
+      setLibrary([]);
       setReady(true);
       return;
     }
@@ -187,7 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       setUser(data.user);
       if (data.user) await hydrateProfiles(data.user);
-      else setLibrary(readLocalLibrary());
+      else setLibrary([]);
       if (cancelled) return;
       setReady(true);
 
@@ -199,7 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         else {
           setProfiles([]);
           setActiveProfile(null);
-          setLibrary(readLocalLibrary());
+          setLibrary([]);
           setContinueWatching([]);
           setPremiumUntil(null);
           setPremiumReady(true);
@@ -237,7 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setProfiles([]);
     setActiveProfile(null);
-    setLibrary(readLocalLibrary());
+    setLibrary([]);
     setContinueWatching([]);
     setPremiumUntil(null);
     setPremiumReady(true);
@@ -296,15 +286,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [activeProfile?.id, profiles.length]);
 
   const toggleLibrary = useCallback(async (media: Media) => {
+    if (!user || !activeProfile) return;
+
     const existed = library.some((item) => item.key === media.key);
     const previous = library;
     const next = existed ? library.filter((item) => item.key !== media.key) : [...library, media];
     setLibrary(next);
-
-    if (!user || !activeProfile) {
-      try { window.localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)); } catch { /* unavailable */ }
-      return;
-    }
 
     const supabase = createClient();
     if (!supabase) return;

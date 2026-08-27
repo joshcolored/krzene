@@ -12,8 +12,16 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
   const secretKey = process.env.PAYMONGO_SECRET_KEY?.trim();
 
-  if (!supabase || !admin || !secretKey) {
-    return NextResponse.json({ error: "Premium checkout is not configured yet." }, { status: 503 });
+  if (!supabase) {
+    return NextResponse.json({ error: "Premium checkout cannot reach Supabase authentication." }, { status: 503 });
+  }
+  if (!admin) {
+    console.error("Premium checkout is missing SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY.");
+    return NextResponse.json({ error: "Premium checkout needs its server database key." }, { status: 503 });
+  }
+  if (!secretKey) {
+    console.error("Premium checkout is missing PAYMONGO_SECRET_KEY.");
+    return NextResponse.json({ error: "Premium checkout needs its PayMongo server key." }, { status: 503 });
   }
 
   const { data: { user } } = await supabase.auth.getUser();
