@@ -41,6 +41,16 @@ export type MediaDetail = Media & {
   recommendations: Media[];
 };
 
+export type StreamingOffer = {
+  id: string;
+  provider: string;
+  type: "subscription" | "free" | "rent" | "buy" | "other";
+  region: string;
+  format: string | null;
+  price: number | null;
+  url: string;
+};
+
 export type HomeData =
   | { configured: true; hero: MediaDetail; rails: MediaRail[]; vidsrcMirror: string | null }
   | { configured: false; reason: string };

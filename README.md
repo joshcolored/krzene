@@ -23,12 +23,14 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - Tailwind CSS 4
 - Supabase Auth, PostgreSQL, and Row Level Security
 - TMDB API
+- Watchmode availability API
 - VidSrc embeds
 
 ## Requirements
 
 - Node.js 20 or newer
 - A [TMDB API key](https://www.themoviedb.org/settings/api)
+- A [Watchmode API key](https://api.watchmode.com/requestApiKey/) for legal availability links (optional)
 - A [Supabase](https://supabase.com/) project
 - A Google Cloud project for OAuth
 - A Vercel account for deployment (optional)
@@ -46,11 +48,15 @@ Copy `.env.example` to `.env.local` and provide real values:
 
 ```dotenv
 TMDB_API_KEY=your_tmdb_key
+WATCHMODE_API_KEY=your_watchmode_api_key
+WATCHMODE_REGION=PH
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 ```
 
 Use a Supabase publishable key (`sb_publishable_...`) in the public variable. Never put a service-role key or another secret key in a `NEXT_PUBLIC_` variable.
+
+`WATCHMODE_API_KEY` is server-only. The watch page maps each TMDB ID to Watchmode and displays legal subscription, free, rental, and purchase links for `WATCHMODE_REGION`. Watchmode is an availability provider, not an embedded playback server.
 
 Start the development server:
 

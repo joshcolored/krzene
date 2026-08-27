@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isKidsMedia, watchHref, type Media, type MediaDetail } from "@/lib/media";
+import { isKidsMedia, watchHref, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
 import { DEFAULT_MIRROR, VIDSRC_MIRRORS, embedUrl, type VidSrcMirror } from "@/lib/vidsrc";
 import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
 import { useAuth } from "./AuthProvider";
@@ -29,7 +29,15 @@ type WatchMenu = "servers" | "episodes" | "subtitles";
 const TOOL_BUTTON =
   "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/12 bg-[#171717] px-3.5 text-xs font-bold text-[#d8d4ce] transition hover:border-white/25 hover:bg-[#232323] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5ad12]";
 
-export function WatchExperience({ detail, notice }: { detail: MediaDetail; notice?: string }) {
+export function WatchExperience({
+  detail,
+  notice,
+  streamingOffers = [],
+}: {
+  detail: MediaDetail;
+  notice?: string;
+  streamingOffers?: StreamingOffer[];
+}) {
   const searchParams = useSearchParams();
   const requestedSeason = Number(searchParams.get("season"));
   const requestedEpisode = Number(searchParams.get("episode"));
@@ -362,6 +370,31 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
               Use the D-pad to move, OK to select, Back to close, and your remote&apos;s media keys to play, pause, rewind, or fast-forward.
             </p>
           </div>
+          {streamingOffers.length > 0 && (
+            <div className="mt-5 border-t border-white/9 pt-[22px]">
+              <div className="flex items-center justify-between gap-3">
+                <b className="text-[13px]">Where to watch</b>
+                <a href="https://www.watchmode.com/" target="_blank" rel="noopener noreferrer nofollow" className="text-[10px] font-bold tracking-[.1em] text-[#77736e] uppercase transition hover:text-white">Watchmode</a>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-[#77736e]">Legal availability in {streamingOffers[0]?.region}.</p>
+              <div className="mt-3 flex flex-col gap-2">
+                {streamingOffers.map((offer) => (
+                  <a
+                    key={offer.id}
+                    href={offer.url}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    className="flex min-h-11 items-center gap-3 rounded-lg border border-white/9 bg-[#151515] px-3 text-xs transition hover:border-white/20 hover:bg-[#202020] focus-visible:outline-2 focus-visible:outline-[#f5ad12]"
+                  >
+                    <b className="min-w-0 flex-1 truncate text-[#eeeae4]">{offer.provider}</b>
+                    {offer.format && <span className="text-[#8f8a83]">{offer.format}</span>}
+                    <span className="rounded-full bg-white/8 px-2 py-1 text-[9px] font-extrabold tracking-[.08em] text-[#bdb8b0] uppercase">{offer.type}</span>
+                    <span aria-hidden="true" className="text-[#f5ad12]">↗</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </aside>
       </section>
 

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { WatchExperience } from "@/components/WatchExperience";
 import { fetchDetailOutcome } from "@/lib/tmdb";
 import { accentFor, type MediaDetail, type MediaKind } from "@/lib/media";
+import { fetchWatchmodeOffers } from "@/lib/watchmode";
 
 /**
  * Env and TMDB availability are per-request concerns, so never prerender this.
@@ -50,16 +51,20 @@ export default async function WatchPage({
   if (!Number.isInteger(tmdbId) || tmdbId <= 0) notFound();
 
   const kind = type as MediaKind;
-  const outcome = await fetchDetailOutcome(kind, tmdbId);
+  const [outcome, streamingOffers] = await Promise.all([
+    fetchDetailOutcome(kind, tmdbId),
+    fetchWatchmodeOffers(kind, tmdbId),
+  ]);
 
   // TMDB confirmed there is no such title — that is a genuine 404.
   if (outcome.status === "missing") notFound();
 
-  if (outcome.status === "ok") return <WatchExperience detail={outcome.detail} />;
+  if (outcome.status === "ok") return <WatchExperience detail={outcome.detail} streamingOffers={streamingOffers} />;
 
   return (
     <WatchExperience
       detail={placeholderDetail(kind, tmdbId)}
+      streamingOffers={streamingOffers}
       notice="Couldn't reach TMDB for this title's details, so the synopsis and episode list are unavailable. Playback is unaffected — it streams from VidSrc using the TMDB id."
     />
   );
