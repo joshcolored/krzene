@@ -37,6 +37,9 @@ export async function getHomeData(): Promise<HomeData> {
     onTheAir,
     topShows,
     anime,
+    kidsMovies,
+    kidsShows,
+    kidsAnimation,
     vidsrcMovies,
     vidsrcShows,
   ] = await Promise.all([
@@ -50,6 +53,21 @@ export async function getHomeData(): Promise<HomeData> {
     fetchList("/tv/on_the_air", "tv", genres),
     fetchDeepList("/tv/top_rated", "tv", genres),
     fetchDeepList("/discover/tv", "tv", genres, ANIME_PARAMS),
+    fetchDeepList("/discover/movie", "movie", genres, {
+      with_genres: 10751,
+      include_adult: "false",
+      sort_by: "popularity.desc",
+    }),
+    fetchDeepList("/discover/tv", "tv", genres, {
+      with_genres: "10762|10751",
+      include_adult: "false",
+      sort_by: "popularity.desc",
+    }),
+    fetchDeepList("/discover/tv", "tv", genres, {
+      with_genres: "16,10762",
+      include_adult: "false",
+      sort_by: "popularity.desc",
+    }),
     vidsrcList("movie", "add"),
     vidsrcList("tv", "add"),
   ]);
@@ -79,6 +97,10 @@ export async function getHomeData(): Promise<HomeData> {
     { id: "tv-air", kicker: "TV SHOWS", heading: "On the air now", kind: "tv", items: onTheAir },
     { id: "tv-top", kicker: "TV SHOWS", heading: "Highest rated series", kind: "tv", items: topShows },
     { id: "anime", kicker: "ANIME", heading: "Anime & animation", kind: "tv", items: anime },
+    { id: "kids-trending", kicker: "KIDS", heading: "Popular for kids", kind: "mixed", items: [...kidsMovies.slice(0, 20), ...kidsShows.slice(0, 20)] },
+    { id: "kids-movies", kicker: "FAMILY MOVIES", heading: "Movies for everyone", kind: "movie", items: kidsMovies },
+    { id: "kids-shows", kicker: "KIDS TV", heading: "Shows made for kids", kind: "tv", items: kidsShows },
+    { id: "kids-animation", kicker: "ANIMATION", heading: "Animated adventures", kind: "tv", items: kidsAnimation },
   ];
 
   // Only rendered when VidSrc's listing API is actually alive.

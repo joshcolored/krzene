@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { watchHref, type HomeData, type Media, type MediaDetail, type MediaRail } from "@/lib/media";
+import { isKidsMedia, watchHref, type HomeData, type Media, type MediaDetail, type MediaRail } from "@/lib/media";
 import { useAuth } from "./AuthProvider";
 import { ProfileChooser } from "./ProfileChooser";
 
@@ -208,7 +208,23 @@ function CatalogHome({
     if (user) setShowSignIn(false);
   }, [activeProfile, authReady, user]);
 
-  const savedKeys = useMemo(() => new Set(savedItems.map((item) => item.key)), [savedItems]);
+  const kidsMode = activeProfile?.isKids === true;
+  const visibleSavedItems = useMemo(
+    () => kidsMode ? savedItems.filter(isKidsMedia) : savedItems,
+    [kidsMode, savedItems],
+  );
+  const visibleContinueWatching = useMemo(
+    () => kidsMode ? continueWatching.filter((item) => isKidsMedia(item.media)) : continueWatching,
+    [continueWatching, kidsMode],
+  );
+  const catalogRails = useMemo(
+    () => rails
+      .filter((rail) => kidsMode ? rail.id.startsWith("kids-") : !rail.id.startsWith("kids-"))
+      .map((rail) => kidsMode ? { ...rail, items: rail.items.filter(isKidsMedia) } : rail)
+      .filter((rail) => rail.items.length > 0),
+    [kidsMode, rails],
+  );
+  const savedKeys = useMemo(() => new Set(visibleSavedItems.map((item) => item.key)), [visibleSavedItems]);
 
   const toggleSaved = useCallback((media: Media) => void toggleLibrary(media), [toggleLibrary]);
 
@@ -234,7 +250,7 @@ function CatalogHome({
     const token = ++searchToken.current;
     const timer = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`);
+        const response = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}${kidsMode ? "&kids=1" : ""}`);
         const payload = await response.json();
         if (token === searchToken.current) setResults(payload.results ?? []);
       } catch {
@@ -244,30 +260,30 @@ function CatalogHome({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [kidsMode, query]);
 
   const visibleRails = useMemo(() => {
     switch (active) {
       case "Movies":
-        return rails.filter((rail) => rail.kind === "movie");
+        return catalogRails.filter((rail) => rail.kind === "movie");
       case "Shows":
-        return rails.filter((rail) => rail.kind === "tv" && rail.id !== "anime");
+        return catalogRails.filter((rail) => rail.kind === "tv" && rail.id !== "anime");
       case "Anime":
-        return rails.filter((rail) => rail.id === "anime");
+        return catalogRails.filter((rail) => kidsMode ? rail.id === "kids-animation" : rail.id === "anime");
       case "Library":
         return [];
       default:
-        return rails.filter((rail) => rail.id !== "trending");
+        return catalogRails.filter((rail) => rail.id !== (kidsMode ? "kids-trending" : "trending"));
     }
-  }, [active, rails]);
+  }, [active, catalogRails, kidsMode]);
 
   const totalTitles = useMemo(
-    () => new Set(rails.flatMap((rail) => rail.items.map((item) => item.key))).size,
-    [rails],
+    () => new Set(catalogRails.flatMap((rail) => rail.items.map((item) => item.key))).size,
+    [catalogRails],
   );
 
   const featureFilms = useMemo(() => {
-    const candidates = [hero, ...rails.flatMap((rail) => rail.items)]
+    const candidates = [...(kidsMode ? [] : [hero]), ...catalogRails.flatMap((rail) => rail.items)]
       .filter((item) => item.kind === "movie" && Boolean(item.backdrop));
     const seen = new Set<string>();
     return candidates.filter((item) => {
@@ -275,7 +291,9 @@ function CatalogHome({
       seen.add(item.key);
       return true;
     }).slice(0, 7);
-  }, [hero, rails]);
+  }, [catalogRails, hero, kidsMode]);
+
+  useEffect(() => setHeroIndex(0), [kidsMode]);
 
   useEffect(() => {
     if (featureFilms.length < 2) return;
@@ -292,11 +310,11 @@ function CatalogHome({
     return () => window.clearTimeout(timer);
   }, [watchingKey]);
 
-  const activeHero = featureFilms[heroIndex] ?? hero;
+  const activeHero = featureFilms[heroIndex] ?? (kidsMode ? catalogRails[0]?.items[0] : hero) ?? hero;
   const activeHeroRuntime = activeHero.key === hero.key ? hero.runtime : "";
   const activeHeroTagline = activeHero.key === hero.key ? hero.tagline : "";
 
-  const topTen = rails.find((rail) => rail.id === "trending")?.items.slice(0, 10) ?? [];
+  const topTen = catalogRails.find((rail) => rail.id === (kidsMode ? "kids-trending" : "trending"))?.items.slice(0, 10) ?? [];
   const heroArt = activeHero.backdrop ?? activeHero.poster;
   const trimmedQuery = query.trim();
 
@@ -313,7 +331,7 @@ function CatalogHome({
                 <UiIcon name={NAV_ICONS[item]} />
               </span>{" "}
               {item}
-              {item === "Library" && savedItems.length > 0 && <i className="ml-[5px] rounded-[9px] bg-krzene-red px-[5px] py-[3px] text-[10px] leading-none font-bold not-italic">{savedItems.length}</i>}
+              {item === "Library" && visibleSavedItems.length > 0 && <i className="ml-[5px] rounded-[9px] bg-krzene-red px-[5px] py-[3px] text-[10px] leading-none font-bold not-italic">{visibleSavedItems.length}</i>}
             </button>
           ))}
         </nav>
@@ -362,7 +380,7 @@ function CatalogHome({
               >
                 <span className="text-lg"><UiIcon name={NAV_ICONS[item]} /></span>
                 <span>{item}</span>
-                {item === "Library" && savedItems.length > 0 && <i className="ml-auto rounded-full bg-krzene-red px-2 py-1 text-[10px] leading-none not-italic text-white">{savedItems.length}</i>}
+                {item === "Library" && visibleSavedItems.length > 0 && <i className="ml-auto rounded-full bg-krzene-red px-2 py-1 text-[10px] leading-none not-italic text-white">{visibleSavedItems.length}</i>}
               </button>
             ))}
           </div>
@@ -519,7 +537,8 @@ function CatalogHome({
 
       <div className="relative z-[4] -mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] px-[max(64px,calc((100vw_-_1310px)/2))] pt-[90px] pb-[100px] max-[760px]:-mt-[140px] max-[760px]:px-5 max-[760px]:pt-[82px] max-[760px]:pb-[120px]">
         <div className="mb-[34px] rounded-xl border border-white/7 bg-black/25 px-4 py-3 text-[11px] tracking-[.02em] text-[#77736e] shadow-[0_12px_34px_rgba(0,0,0,.2)] backdrop-blur-xl max-[760px]:mb-[26px] [&_b]:text-[#d2cec8]">
-          <b>{totalTitles.toLocaleString()}</b> Movies and Series loaded
+          {kidsMode && <b className="mr-2 rounded-full bg-[#d9edf5] px-2 py-1 text-[#16242a]">KIDS</b>}
+          <b>{totalTitles.toLocaleString()}</b> {kidsMode ? "kid-friendly titles" : "Movies and Series loaded"}
           {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""}
         </div>
 
@@ -555,12 +574,12 @@ function CatalogHome({
             <div className="mb-[19px] flex items-end justify-between">
               <div>
                 <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">MY LIST</span>
-                <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">{savedItems.length ? `${savedItems.length} saved` : "Nothing saved yet"}</h2>
+                <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">{visibleSavedItems.length ? `${visibleSavedItems.length} saved` : "Nothing saved yet"}</h2>
               </div>
             </div>
-            {savedItems.length ? (
+            {visibleSavedItems.length ? (
               <div className="grid grid-cols-5 gap-4 max-[1080px]:grid-cols-3 max-[760px]:mr-[-20px] max-[760px]:flex max-[760px]:overflow-x-auto max-[760px]:pr-5 max-[760px]:[scrollbar-width:none]">
-                {savedItems.map((media) => (
+                {visibleSavedItems.map((media) => (
                   <MediaCard key={media.key} media={media} saved onSave={() => toggleSaved(media)} />
                 ))}
               </div>
@@ -570,17 +589,17 @@ function CatalogHome({
           </section>
         ) : (
           <>
-            {active === "Home" && user && activeProfile && continueWatching.length > 0 && (
+            {active === "Home" && user && activeProfile && visibleContinueWatching.length > 0 && (
               <section className="mb-[72px] max-[760px]:mb-[55px]">
                 <div className="mb-[19px] flex items-end justify-between">
                   <div>
                     <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">FOR {activeProfile.name.toUpperCase()}</span>
                     <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">Continue watching</h2>
                   </div>
-                  <span className="text-[11px] font-bold text-[#6f6b66]">{continueWatching.length} saved</span>
+                  <span className="text-[11px] font-bold text-[#6f6b66]">{visibleContinueWatching.length} saved</span>
                 </div>
                 <div className="media-rail flex snap-x snap-proximity gap-4 overflow-x-auto pb-[10px] max-[760px]:mr-[-20px] max-[760px]:pr-5">
-                  {continueWatching.map((item) => {
+                  {visibleContinueWatching.map((item) => {
                     const progress = item.duration > 0 ? Math.min(item.position / item.duration, 1) : 0;
                     const resumeQuery = new URLSearchParams({ t: String(Math.floor(item.position)) });
                     if (item.season != null) resumeQuery.set("season", String(item.season));

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { watchHref, type Media, type MediaDetail } from "@/lib/media";
+import { isKidsMedia, watchHref, type Media, type MediaDetail } from "@/lib/media";
 import { DEFAULT_MIRROR, VIDSRC_MIRRORS, embedUrl, type VidSrcMirror } from "@/lib/vidsrc";
 import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
 import { useAuth } from "./AuthProvider";
@@ -43,7 +43,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
   const [subtitle, setSubtitle] = useState("en");
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const { library, toggleLibrary, saveWatchProgress } = useAuth();
+  const { ready: authReady, activeProfile, library, toggleLibrary, saveWatchProgress } = useAuth();
   const saved = library.some((item) => item.key === detail.key);
 
   const isSeries = detail.kind === "tv";
@@ -107,6 +107,67 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
     setOpenMenu((current) => (current === menu ? null : menu));
   };
 
+  useEffect(() => {
+    const onRemoteKey = (event: KeyboardEvent) => {
+      const legacyCode = event.keyCode;
+      const isTextControl = (event.target as HTMLElement | null)?.matches?.("input, textarea, select, [contenteditable='true']");
+      if (isTextControl) return;
+
+      if (event.key === "MediaPlayPause" || legacyCode === 10252) {
+        event.preventDefault();
+        playbackRef.current.playing ? remote.pause() : remote.play();
+      } else if (event.key === "MediaPlay" || legacyCode === 415) {
+        event.preventDefault();
+        remote.play();
+      } else if (event.key === "MediaPause" || legacyCode === 19 || legacyCode === 413) {
+        event.preventDefault();
+        remote.pause();
+      } else if (event.key === "MediaRewind" || legacyCode === 412) {
+        event.preventDefault();
+        remote.seekBy(-10);
+      } else if (event.key === "MediaFastForward" || legacyCode === 417) {
+        event.preventDefault();
+        remote.seekBy(10);
+      } else if (event.key === "AudioVolumeMute") {
+        event.preventDefault();
+        remote.setMuted(!playbackRef.current.muted);
+      } else if (event.key === "Escape") {
+        if (openMenu) {
+          event.preventDefault();
+          setOpenMenu(null);
+        }
+      } else if (event.key === "BrowserBack" || event.key === "GoBack" || legacyCode === 10009 || legacyCode === 461) {
+        event.preventDefault();
+        if (openMenu) setOpenMenu(null);
+        else window.history.back();
+      }
+    };
+
+    window.addEventListener("keydown", onRemoteKey);
+    return () => window.removeEventListener("keydown", onRemoteKey);
+  }, [openMenu, remote]);
+
+  if (!authReady) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#040404] text-white">
+        <span className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-[#f5ad12]" aria-label="Loading profile" />
+      </main>
+    );
+  }
+
+  if (activeProfile?.isKids && !isKidsMedia(detail)) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#172522,#040404_62%)] px-5 text-center text-white">
+        <section className="max-w-md rounded-3xl border border-white/10 bg-black/35 px-8 py-10 shadow-2xl backdrop-blur-xl">
+          <span className="mb-5 inline-flex rounded-full bg-[#d9edf5] px-3 py-1 text-xs font-extrabold tracking-wider text-[#16242a]">KIDS PROFILE</span>
+          <h1 className="font-display text-3xl font-extrabold">This title isn&apos;t available here</h1>
+          <p className="mt-3 text-sm leading-relaxed text-[#aaa6a0]">Switch to a standard profile to watch it, or return to the kids catalog.</p>
+          <Link href="/" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-6 font-extrabold text-black">Back to Kids</Link>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#040404] pb-[90px] text-white">
       <section className="px-[max(26px,calc((100vw_-_1720px)/2))] pt-5 max-[760px]:px-3 max-[760px]:pt-3">
@@ -138,6 +199,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
             referrerPolicy="origin"
+            tabIndex={-1}
           />
         </div>
 
@@ -292,14 +354,20 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
               {sourcePath} on {new URL(mirror.host).host}. Use the buttons below the player to change servers, subtitles, or episodes.
             </p>
           </div>
+          <div className="mt-5 border-t border-white/9 pt-[22px]">
+            <b className="text-[13px]">TV remote</b>
+            <p className="text-xs leading-relaxed text-[#77736e]">
+              Use the D-pad to move, OK to select, Back to close, and your remote&apos;s media keys to play, pause, rewind, or fast-forward.
+            </p>
+          </div>
         </aside>
       </section>
 
-      {detail.recommendations.length > 0 && (
+      {(activeProfile?.isKids ? detail.recommendations.filter(isKidsMedia) : detail.recommendations).length > 0 && (
         <section className="mt-[62px] px-[max(26px,calc((100vw_-_1720px)/2))] max-[760px]:px-[18px]">
           <h2 className="font-display text-[21px] font-bold">Recommended next</h2>
           <div className="grid grid-cols-4 gap-[14px] max-[1080px]:grid-cols-2 max-[760px]:flex max-[760px]:overflow-x-auto">
-            {detail.recommendations.map((item) => (
+            {(activeProfile?.isKids ? detail.recommendations.filter(isKidsMedia) : detail.recommendations).map((item) => (
               <Link className="overflow-hidden rounded-[13px] bg-[#121212] max-[760px]:shrink-0 max-[760px]:basis-[72vw]" href={watchHref(item)} key={item.key}>
                 {item.backdrop || item.poster ? (
                   <img className="block aspect-[1.65] w-full object-cover" src={item.backdrop ?? item.poster!} alt="" loading="lazy" />

@@ -45,6 +45,18 @@ export type HomeData =
   | { configured: true; hero: MediaDetail; rails: MediaRail[]; vidsrcMirror: string | null }
   | { configured: false; reason: string };
 
+/**
+ * Deliberately conservative: TMDB's adult flag does not mean a title is
+ * suitable for children. Kids profiles only receive titles explicitly filed
+ * under Kids or Family; animation alone can still be adult-oriented.
+ */
+export function isKidsMedia(media: Pick<Media, "genres">): boolean {
+  return media.genres.some((genre) => {
+    const normalized = genre.trim().toLowerCase();
+    return normalized === "kids" || normalized === "family";
+  });
+}
+
 const ACCENTS = [
   "#e36f34",
   "#845eff",

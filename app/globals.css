@@ -27,6 +27,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "DM Sa
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
+/* TV remotes move focus programmatically, so every actionable control needs a
+   strong, consistent focus marker even when the component has no local ring. */
+.tv-navigation-active :is(a, button, input, select, textarea, [tabindex]):focus {
+  outline: 3px solid #f5ad12 !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 7px rgba(245, 173, 18, .18), 0 10px 34px rgba(0, 0, 0, .45);
+}
+
 @keyframes ui-search-in {
   from { opacity: 0; transform: translateY(-10px) scale(.975); }
   to { opacity: 1; transform: translateY(0) scale(1); }
