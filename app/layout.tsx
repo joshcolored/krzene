@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   title: "Krzene — Your next story starts here",
   description: "A cinematic streaming interface built with Next.js.",
   applicationName: "Krzene",
+  other: {
+    "google-adsense-account": "ca-pub-5965941687701015",
+  },
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

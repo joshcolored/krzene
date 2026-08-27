@@ -7,6 +7,7 @@ import { isKidsMedia, watchHref, type Media, type MediaDetail } from "@/lib/medi
 import { DEFAULT_MIRROR, VIDSRC_MIRRORS, embedUrl, type VidSrcMirror } from "@/lib/vidsrc";
 import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
 import { useAuth } from "./AuthProvider";
+import { PlayerChrome } from "./PlayerChrome";
 
 const SUBTITLE_LANGUAGES = [
   { code: "", label: "Player default" },
@@ -189,7 +190,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
           </div>
         </header>
 
-        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md">
+        <PlayerChrome playback={playback} remote={remote} title={detail.title}>
           <iframe
             key={sourceUrl}
             ref={frameRef}
@@ -198,11 +199,10 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
             title={`${detail.title} — ${mirror.name}`}
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
-            sandbox="allow-scripts allow-same-origin allow-presentation"
             referrerPolicy="origin"
             tabIndex={-1}
           />
-        </div>
+        </PlayerChrome>
 
         <div className="relative border-b border-white/10 py-3">
           <div className="flex items-center justify-between gap-3 max-[640px]:flex-col max-[640px]:items-stretch">

@@ -34,6 +34,9 @@ type AuthValue = {
   activeProfile: ViewerProfile | null;
   library: Media[];
   continueWatching: ContinueWatchingItem[];
+  premiumReady: boolean;
+  isPremium: boolean;
+  premiumUntil: string | null;
   authError: string | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -42,6 +45,7 @@ type AuthValue = {
   deleteProfile: (profileId: string) => Promise<void>;
   toggleLibrary: (media: Media) => Promise<void>;
   saveWatchProgress: (media: Media, position: number, duration: number, season?: number | null, episode?: number | null) => Promise<void>;
+  refreshPremium: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -72,7 +76,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [activeProfile, setActiveProfile] = useState<ViewerProfile | null>(null);
   const [library, setLibrary] = useState<Media[]>([]);
   const [continueWatching, setContinueWatching] = useState<ContinueWatchingItem[]>([]);
+  const [premiumReady, setPremiumReady] = useState(false);
+  const [premiumUntil, setPremiumUntil] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  const loadPremium = useCallback(async (ownerId: string) => {
+    const supabase = createClient();
+    if (!supabase) {
+      setPremiumReady(true);
+      return;
+    }
+    const { data } = await supabase
+      .from("premium_subscriptions")
+      .select("status,current_period_end")
+      .eq("owner_id", ownerId)
+      .maybeSingle();
+    setPremiumUntil(data?.status === "active" ? data.current_period_end ?? null : null);
+    setPremiumReady(true);
+  }, []);
 
   const loadLibrary = useCallback(async (profile: ViewerProfile) => {
     const supabase = createClient();
@@ -115,6 +136,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hydrateProfiles = useCallback(async (nextUser: User) => {
     const supabase = createClient();
     if (!supabase) return;
+    setPremiumReady(false);
+    void loadPremium(nextUser.id);
     const { data, error } = await supabase.from("viewer_profiles").select("*").order("created_at");
     if (error) {
       setAuthError("Profiles are not ready yet. Apply the Supabase migration first.");
@@ -146,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const stored = nextProfiles.find((profile) => profile.id === storedId) ?? null;
     setActiveProfile(stored);
     if (stored) await Promise.all([loadLibrary(stored), loadContinueWatching(stored)]);
-  }, [loadContinueWatching, loadLibrary]);
+  }, [loadContinueWatching, loadLibrary, loadPremium]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -178,6 +201,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setActiveProfile(null);
           setLibrary(readLocalLibrary());
           setContinueWatching([]);
+          setPremiumUntil(null);
+          setPremiumReady(true);
         }
       });
       unsubscribe = () => listener.subscription.unsubscribe();
@@ -214,7 +239,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActiveProfile(null);
     setLibrary(readLocalLibrary());
     setContinueWatching([]);
+    setPremiumUntil(null);
+    setPremiumReady(true);
   }, []);
+
+  const refreshPremium = useCallback(async () => {
+    if (!user) {
+      setPremiumUntil(null);
+      setPremiumReady(true);
+      return;
+    }
+    await loadPremium(user.id);
+  }, [loadPremium, user]);
 
   const selectProfile = useCallback(async (profile: ViewerProfile) => {
     setActiveProfile(profile);
@@ -320,6 +356,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) setAuthError("Viewing progress could not be saved.");
   }, [activeProfile, user]);
 
+  const isPremium = Boolean(premiumUntil && new Date(premiumUntil).getTime() > Date.now());
+
   const value = useMemo<AuthValue>(() => ({
     configured: isSupabaseConfigured,
     ready,
@@ -328,6 +366,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     activeProfile,
     library,
     continueWatching,
+    premiumReady,
+    isPremium,
+    premiumUntil,
     authError,
     signInWithGoogle,
     signOut,
@@ -336,7 +377,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     deleteProfile,
     toggleLibrary,
     saveWatchProgress,
-  }), [activeProfile, authError, continueWatching, createProfile, deleteProfile, library, profiles, ready, saveWatchProgress, selectProfile, signInWithGoogle, signOut, toggleLibrary, user]);
+    refreshPremium,
+  }), [activeProfile, authError, continueWatching, createProfile, deleteProfile, isPremium, library, premiumReady, premiumUntil, profiles, ready, refreshPremium, saveWatchProgress, selectProfile, signInWithGoogle, signOut, toggleLibrary, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
