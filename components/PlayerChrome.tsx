@@ -56,6 +56,7 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
   const [touchDevice, setTouchDevice] = useState(false);
   const connected = playback.connected;
   const fullscreen = pseudoFullscreen || nativeFullscreen;
+  const passResumeTapToProvider = connected && touchDevice && !playback.playing;
 
   useEffect(() => {
     const coarse = window.matchMedia("(pointer: coarse)");
@@ -192,15 +193,15 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
       aria-label={title + " player"}
     >
       <div
-        className={connected
+        className={connected && !passResumeTapToProvider
           ? "absolute inset-0 [&_iframe]:pointer-events-none [&_iframe]:select-none"
           : "absolute inset-0"}
-        data-provider-controls={connected ? "sealed" : "waiting"}
+        data-provider-controls={connected ? passResumeTapToProvider ? "resume-tap" : "sealed" : "waiting"}
       >
         {children}
       </div>
 
-      {connected && (
+      {connected && !passResumeTapToProvider && (
         <div
           className="absolute inset-0 z-10 cursor-pointer touch-manipulation"
           role="button"
@@ -241,8 +242,11 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
           preserving Krzene's controls above it. */}
       {connected && touchDevice && !playback.playing && (
         <div className="pointer-events-none absolute inset-0 z-[12] flex items-center justify-center bg-black" aria-hidden="true">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-white/8 text-white shadow-2xl backdrop-blur-xl [&_svg]:h-7 [&_svg]:w-7">
-            <Glyph name="play" />
+          <span className="flex flex-col items-center gap-3 text-white">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-white/8 shadow-2xl backdrop-blur-xl [&_svg]:h-7 [&_svg]:w-7">
+              <Glyph name="play" />
+            </span>
+            <small className="text-[11px] font-bold tracking-[.08em] text-white/65 uppercase">Tap to resume</small>
           </span>
         </div>
       )}
