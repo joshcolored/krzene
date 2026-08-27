@@ -195,7 +195,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthError("Add the Supabase environment variables to enable Google sign-in.");
       return;
     }
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || window.location.origin;
+    // OAuth must return to the exact origin that created Supabase's PKCE
+    // verifier cookie. A build-time URL can accidentally send custom-domain
+    // users to the Vercel domain, where that cookie does not exist.
+    const siteUrl = window.location.origin.replace(/\/$/, "");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${siteUrl}/auth/callback?next=/`, queryParams: { prompt: "select_account" } },

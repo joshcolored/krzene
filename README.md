@@ -46,7 +46,6 @@ Copy `.env.example` to `.env.local` and provide real values:
 TMDB_API_KEY=your_tmdb_key
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 Use a Supabase publishable key (`sb_publishable_...`) in the public variable. Never put a service-role key or another secret key in a `NEXT_PUBLIC_` variable.
@@ -172,10 +171,12 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 Add the following to Production with the final application URL:
 
 ```text
-NEXT_PUBLIC_SITE_URL=https://your-project.vercel.app
+OAuth callbacks automatically use the origin where sign-in begins. This keeps
+custom-domain sessions on `https://krzene.site` and preview sessions on their
+own Vercel URL.
 ```
 
-For Preview deployments, `NEXT_PUBLIC_SITE_URL` can be omitted so the current preview origin is used.
+Keep each production or preview origin you use in Supabase's redirect allowlist.
 
 After Vercel provides the production domain, also update:
 
@@ -231,7 +232,7 @@ Run both SQL migrations in the Supabase SQL Editor and confirm that `viewer_prof
 
 ### Authentication works locally but fails on Vercel
 
-Check that the production domain is configured in Google, Supabase URL Configuration, and `NEXT_PUBLIC_SITE_URL`. Redeploy after changing Vercel environment variables.
+Check that the production domain is configured in Google and Supabase URL Configuration, then redeploy.
 
 ### A saved title is missing
 
