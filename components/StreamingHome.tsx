@@ -320,7 +320,7 @@ function CatalogHome({
 
   return (
     <main className="min-h-screen overflow-hidden bg-krzene-bg">
-      <header className="fixed top-5 left-1/2 z-50 flex h-[62px] w-[calc(100%_-_48px)] max-w-[1180px] -translate-x-1/2 items-center justify-between gap-[18px] rounded-[22px] border border-white/9 bg-[rgba(12,12,12,.72)] p-[8px_10px] shadow-[0_16px_50px_rgba(0,0,0,.32)] backdrop-blur-3xl max-[760px]:top-3 max-[760px]:h-[60px] max-[760px]:w-[calc(100%_-_24px)] max-[760px]:gap-2 max-[760px]:p-[7px_8px]">
+      <header className="pwa-home-header fixed left-1/2 z-50 flex h-[62px] w-[calc(100%_-_48px)] max-w-[1180px] -translate-x-1/2 items-center justify-between gap-[18px] rounded-[22px] border border-white/9 bg-[rgba(12,12,12,.72)] p-[8px_10px] shadow-[0_16px_50px_rgba(0,0,0,.32)] backdrop-blur-3xl max-[760px]:h-[60px] max-[760px]:w-[calc(100%_-_24px)] max-[760px]:gap-2 max-[760px]:p-[7px_8px]">
         <Link href="/" className="inline-flex h-[42px] basis-[42px] shrink-0 items-center justify-center overflow-hidden rounded-[14px] max-[760px]:h-10 max-[760px]:basis-10" aria-label="Krzene home">
           <img className="h-full w-full" src="/krzene-mark.svg" alt="" />
         </Link>
@@ -388,7 +388,7 @@ function CatalogHome({
       </header>
 
       {showSearch && (
-        <div className="ui-search-enter fixed top-[94px] left-1/2 z-49 flex w-[calc(100%_-_40px)] max-w-[620px] -translate-x-1/2 items-center gap-3 rounded-[18px] border border-white/9 bg-[rgba(18,18,18,.96)] p-[10px_12px_10px_18px] shadow-[0_25px_80px_#000] max-[760px]:top-[82px]">
+        <div className="pwa-home-overlay ui-search-enter fixed left-1/2 z-49 flex w-[calc(100%_-_40px)] max-w-[620px] -translate-x-1/2 items-center gap-3 rounded-[18px] border border-white/9 bg-[rgba(18,18,18,.96)] p-[10px_12px_10px_18px] shadow-[0_25px_80px_#000]">
           <span className="text-[22px] text-[#8c8882]"><UiIcon name="search" /></span>
           <input
             className="flex-1 border-0 bg-transparent py-2.5 text-[15px] text-white outline-none"
@@ -409,7 +409,7 @@ function CatalogHome({
       )}
 
       {!user && authError && (
-        <div className="ui-toast-enter fixed top-[94px] left-1/2 z-80 flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-3.5 rounded-xl border border-[rgba(226,25,39,.45)] bg-[#251213] px-3.5 py-[11px] max-[760px]:top-[82px]" role="status">
+        <div className="pwa-home-overlay ui-toast-enter fixed left-1/2 z-80 flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-3.5 rounded-xl border border-[rgba(226,25,39,.45)] bg-[#251213] px-3.5 py-[11px]" role="status">
           <span className="text-xs text-[#e8c7c9]">{authError}</span>
           <button className="cursor-pointer whitespace-nowrap rounded-lg border-0 bg-krzene-red px-2.5 py-[7px] text-[11px] font-extrabold" onClick={() => setShowSignIn(true)}>Try again</button>
         </div>
@@ -489,7 +489,7 @@ function CatalogHome({
           }}
           aria-hidden="true"
         />
-        <div className="relative z-[2] ml-[max(64px,calc((100vw_-_1310px)/2))] w-[min(650px,calc(100%_-_128px))] pt-[156px] pb-[110px] max-[760px]:mx-0 max-[760px]:w-full max-[760px]:px-[22px] max-[760px]:pt-[132px] max-[760px]:pb-[105px]">
+        <div className="pwa-home-hero-content relative z-[2] ml-[max(64px,calc((100vw_-_1310px)/2))] w-[min(650px,calc(100%_-_128px))] pt-[156px] pb-[110px] max-[760px]:mx-0 max-[760px]:w-full max-[760px]:px-[22px] max-[760px]:pb-[105px]">
           <p className="text-xs font-bold tracking-[.06em] text-[#a8a39c] uppercase [&_span]:text-[#47c98d]">
             <span>Feature film</span> • Trending now
           </p>
@@ -669,7 +669,7 @@ function CatalogHome({
         )}
       </div>
 
-      <footer className="mx-auto w-[calc(100%_-_64px)] max-w-[1310px] border-t border-white/9 pt-[52px] pb-[30px] text-[#88847e] max-[760px]:mb-6 max-[760px]:w-[calc(100%_-_40px)] max-[760px]:pt-[38px]">
+      <footer className="pwa-footer-safe mx-auto w-[calc(100%_-_64px)] max-w-[1310px] border-t border-white/9 pt-[52px] pb-[30px] text-[#88847e] max-[760px]:mb-6 max-[760px]:w-[calc(100%_-_40px)] max-[760px]:pt-[38px]">
         <div className="grid grid-cols-[minmax(260px,1.7fr)_repeat(3,minmax(120px,.7fr))] gap-12 pb-[45px] max-[760px]:grid-cols-2 max-[760px]:gap-[34px_20px]">
           <div className="max-w-[360px] max-[760px]:col-span-full">
             <Link href="/" aria-label="Krzene home">

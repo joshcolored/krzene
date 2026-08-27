@@ -27,6 +27,28 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: "DM Sa
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
+/* iOS standalone PWAs render beneath the status bar when viewport-fit=cover.
+   These component hooks keep controls inside the device's tappable safe area
+   while preserving the edge-to-edge artwork behind them. */
+.pwa-home-header { top: 20px; }
+.pwa-home-overlay { top: 94px; }
+
+@media (max-width: 760px) {
+  .pwa-home-header { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  .pwa-home-overlay { top: calc(env(safe-area-inset-top, 0px) + 82px); }
+  .pwa-home-hero-content { padding-top: calc(env(safe-area-inset-top, 0px) + 132px); }
+  .pwa-watch-shell {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+  .pwa-profile-modal { padding-top: calc(env(safe-area-inset-top, 0px) + 118px); }
+  .pwa-profile-close { top: calc(env(safe-area-inset-top, 0px) + 16px); }
+  .pwa-profile-logo { top: calc(env(safe-area-inset-top, 0px) + 20px); }
+  .pwa-safe-bottom { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  .pwa-footer-safe { padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
+}
+
 /* TV remotes move focus programmatically, so every actionable control needs a
    strong, consistent focus marker even when the component has no local ring. */
 .tv-navigation-active :is(a, button, input, select, textarea, [tabindex]):focus {

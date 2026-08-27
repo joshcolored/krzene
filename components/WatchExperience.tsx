@@ -169,8 +169,8 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
   }
 
   return (
-    <main className="min-h-screen bg-[#040404] pb-[90px] text-white">
-      <section className="px-[max(26px,calc((100vw_-_1720px)/2))] pt-5 max-[760px]:px-3 max-[760px]:pt-3">
+    <main className="pwa-safe-bottom min-h-screen bg-[#040404] pb-[90px] text-white">
+      <section className="pwa-watch-shell px-[max(26px,calc((100vw_-_1720px)/2))] pt-5">
         <header className="mb-4 flex min-w-0 items-center gap-3">
           <Link
             href="/"
@@ -198,6 +198,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
             title={`${detail.title} — ${mirror.name}`}
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
+            sandbox="allow-scripts allow-same-origin allow-presentation"
             referrerPolicy="origin"
             tabIndex={-1}
           />
