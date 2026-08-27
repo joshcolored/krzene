@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
-import { PlayerChrome, type PlayerPanel, type PlayerSource } from "./PlayerChrome";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { watchHref, type Media, type MediaDetail } from "@/lib/media";
 import { DEFAULT_MIRROR, VIDSRC_MIRRORS, embedUrl, type VidSrcMirror } from "@/lib/vidsrc";
+import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
 import { useAuth } from "./AuthProvider";
 
-/** VidSrc takes a two-letter code on `ds_lang`; "" leaves the player default. */
 const SUBTITLE_LANGUAGES = [
   { code: "", label: "Player default" },
   { code: "en", label: "English" },
@@ -24,196 +24,251 @@ const SUBTITLE_LANGUAGES = [
   { code: "ar", label: "Arabic" },
 ];
 
+type WatchMenu = "servers" | "episodes" | "subtitles";
+
+const TOOL_BUTTON =
+  "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/12 bg-[#171717] px-3.5 text-xs font-bold text-[#d8d4ce] transition hover:border-white/25 hover:bg-[#232323] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5ad12]";
+
 export function WatchExperience({ detail, notice }: { detail: MediaDetail; notice?: string }) {
+  const searchParams = useSearchParams();
+  const requestedSeason = Number(searchParams.get("season"));
+  const requestedEpisode = Number(searchParams.get("episode"));
+  const resumeAt = Number(searchParams.get("t"));
+  const initialSeason = detail.seasons.some((entry) => entry.number === requestedSeason)
+    ? requestedSeason
+    : detail.seasons[0]?.number ?? 1;
   const [mirror, setMirror] = useState<VidSrcMirror>(DEFAULT_MIRROR);
-  const [season, setSeason] = useState(detail.seasons[0]?.number ?? 1);
-  const [episode, setEpisode] = useState(1);
-  // English is selected up front so supported tracks are visible immediately.
+  const [season, setSeason] = useState(initialSeason);
+  const [episode, setEpisode] = useState(Number.isInteger(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : 1);
   const [subtitle, setSubtitle] = useState("en");
-  const { library, toggleLibrary } = useAuth();
+  const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const { library, toggleLibrary, saveWatchProgress } = useAuth();
   const saved = library.some((item) => item.key === detail.key);
 
   const isSeries = detail.kind === "tv";
   const seasons = detail.seasons;
-  const seasonIndex = seasons.findIndex((entry) => entry.number === season);
-  const activeSeason = seasons[seasonIndex] ?? seasons[0];
-
-  // VidSrc keys off the IMDb id where we have one; the TMDB id is the fallback.
+  const activeSeason = seasons.find((entry) => entry.number === season) ?? seasons[0];
   const embedId = detail.imdbId ?? detail.tmdbId;
 
-  const source: PlayerSource = useMemo(
-    () => ({
-      kind: "embed",
-      label: mirror.name,
-      url: embedUrl(detail.kind, embedId, isSeries ? season : null, isSeries ? episode : null, {
+  const sourceUrl = useMemo(
+    () =>
+      embedUrl(detail.kind, embedId, isSeries ? season : null, isSeries ? episode : null, {
         host: mirror.host,
         subtitleLanguage: subtitle || undefined,
         autoplay: true,
       }),
-    }),
-    [detail.kind, embedId, isSeries, season, episode, mirror.host, mirror.name, subtitle],
+    [detail.kind, embedId, episode, isSeries, mirror.host, season, subtitle],
   );
+  const [playback, remote] = useVidSrcBridge(frameRef, sourceUrl);
+  const resumeSent = useRef(false);
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
+  const progressBucket = Math.floor(playback.position / 10);
 
-  const toggleSaved = () => void toggleLibrary(stripDetail(detail));
+  useEffect(() => {
+    if (resumeSent.current || !playback.connected || !Number.isFinite(resumeAt) || resumeAt < 5) return;
+    resumeSent.current = true;
+    remote.seekTo(resumeAt);
+  }, [playback.connected, remote, resumeAt]);
+
+  useEffect(() => {
+    if (progressBucket < 1) return;
+    const current = playbackRef.current;
+    void saveWatchProgress(
+      stripDetail(detail),
+      current.position,
+      current.duration,
+      isSeries ? season : null,
+      isSeries ? episode : null,
+    );
+  }, [detail, episode, isSeries, progressBucket, saveWatchProgress, season]);
+
+  const sourcePath = isSeries
+    ? `embed/tv/${embedId}/${season}/${episode}`
+    : `embed/movie/${embedId}`;
+  const runtime =
+    playback.duration > 0
+      ? `${clock(playback.position)} / ${clock(playback.duration)}`
+      : detail.runtime || "Runtime unavailable";
+  const endsAt =
+    playback.duration > 0
+      ? new Date(
+          Date.now() + Math.max(playback.duration - playback.position, 0) * 1000,
+        ).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "";
 
   const chooseSeason = (nextSeason: number) => {
     setSeason(nextSeason);
     setEpisode(1);
   };
 
-  /** Walks episode order, rolling over into the neighbouring season. */
-  const step = useCallback(
-    (delta: number) => {
-      const current = seasons[seasonIndex];
-      if (!current) return;
-      const next = episode + delta;
-      if (next >= 1 && next <= current.episodeCount) {
-        setEpisode(next);
-        return;
-      }
-      const target = seasons[seasonIndex + delta];
-      if (!target) return;
-      setSeason(target.number);
-      setEpisode(delta > 0 ? 1 : target.episodeCount);
-    },
-    [episode, seasonIndex, seasons],
-  );
-
-  const canStepBack = isSeries && (episode > 1 || seasonIndex > 0);
-  const canStepForward =
-    isSeries &&
-    ((activeSeason ? episode < activeSeason.episodeCount : false) || seasonIndex < seasons.length - 1);
-
-  const sourcePath = isSeries
-    ? `embed/tv/${embedId}/${season}/${episode}`
-    : `embed/movie/${embedId}`;
-
-  const panels: PlayerPanel[] = [];
-
-  if (isSeries && seasons.length > 0) {
-    panels.push({
-      id: "episodes",
-      icon: "screen",
-      label: "Episodes",
-      content: (
-        <div>
-          <label className="mb-3 flex items-center gap-[10px]">
-            <span className="w-[52px] text-[10px] font-bold tracking-[.1em] text-[#817c75] uppercase">Season</span>
-            <select className="min-w-0 flex-1 cursor-pointer appearance-none rounded-[9px] border border-white/10 bg-[#242321] px-[10px] py-[9px] text-xs font-semibold text-white outline-none" value={season} onChange={(event) => chooseSeason(Number(event.target.value))}>
-              {seasons.map((entry) => (
-                <option key={entry.number} value={entry.number}>
-                  {entry.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid grid-cols-6 gap-[6px] max-[760px]:grid-cols-5">
-            {Array.from({ length: activeSeason?.episodeCount ?? 0 }, (_, index) => index + 1).map(
-              (number) => (
-                <button
-                  key={number}
-                  type="button"
-                  className={`cursor-pointer rounded-lg border px-0 py-[9px] text-[11px] font-bold transition ${episode === number ? "border-[#f2f0ec] bg-[#f2f0ec] text-[#111]" : "border-white/8 bg-[#20201f] text-[#a9a49d] hover:bg-[#2b2a29] hover:text-white"}`}
-                  onClick={() => setEpisode(number)}
-                  aria-label={`Season ${season}, episode ${number}`}
-                >
-                  {number}
-                </button>
-              ),
-            )}
-          </div>
-        </div>
-      ),
-    });
-  }
-
-  panels.push({
-    id: "subtitles",
-    icon: "captions",
-    label: "Subtitles",
-    content: (
-      <div className="flex flex-col gap-[2px]">
-        {SUBTITLE_LANGUAGES.map((language) => (
-          <button
-            key={language.code || "default"}
-            type="button"
-            className={`flex cursor-pointer items-center gap-[10px] rounded-lg border-0 px-[10px] py-[9px] text-left transition ${subtitle === language.code ? "bg-white/13 text-white" : "bg-transparent text-[#aaa59e] hover:bg-white/8 hover:text-white"}`}
-            onClick={() => setSubtitle(language.code)}
-          >
-            <b className="text-[13px] font-semibold">{language.label}</b>
-            {subtitle === language.code && <i className="ml-auto text-[#f5ad12] not-italic">✓</i>}
-          </button>
-        ))}
-        <p className="mx-1 mt-3 mb-[2px] text-[11px] leading-[1.6] text-[#77726c]">
-          Reloads the player with this preferred track. If a title has no matching subtitle,
-          use the player&apos;s CC menu to choose another available track.
-        </p>
-      </div>
-    ),
-  });
-
-  panels.push({
-    id: "servers",
-    icon: "settings",
-    label: "Servers",
-    content: (
-      <div className="flex flex-col gap-[2px]">
-        {VIDSRC_MIRRORS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`flex cursor-pointer items-center gap-[10px] rounded-lg border-0 px-[10px] py-[9px] text-left transition ${mirror.id === item.id ? "bg-white/13 text-white" : "bg-transparent text-[#aaa59e] hover:bg-white/8 hover:text-white"}`}
-            onClick={() => setMirror(item)}
-          >
-            <b className="text-[13px] font-semibold">{item.name}</b>
-            <span className="text-[11px] text-[#86817b]">{item.region}</span>
-            {mirror.id === item.id && <i className="ml-auto text-[#f5ad12] not-italic">✓</i>}
-          </button>
-        ))}
-        <p className="mx-1 mt-3 mb-[2px] text-[11px] leading-[1.6] text-[#77726c]">
-          {sourcePath} on {new URL(mirror.host).host}. If one server won&apos;t load, switch.
-        </p>
-      </div>
-    ),
-  });
+  const toggleMenu = (menu: WatchMenu) => {
+    setOpenMenu((current) => (current === menu ? null : menu));
+  };
 
   return (
-    <main className="min-h-screen bg-[#040404] pb-[90px]">
-      <PlayerChrome
-        title={detail.title}
-        kicker={isSeries ? "Series" : "Movie"}
-        overview={detail.overview}
-        backdrop={detail.backdrop ?? detail.poster}
-        runtimeLabel={detail.runtime}
-        source={source}
-        panels={panels}
-        backHref="/"
-        nowPlaying={isSeries ? `S${season} · E${episode}` : undefined}
-        onStep={isSeries ? step : undefined}
-        canStepBack={canStepBack}
-        canStepForward={canStepForward}
-      />
+    <main className="min-h-screen bg-[#040404] pb-[90px] text-white">
+      <section className="px-[max(26px,calc((100vw_-_1720px)/2))] pt-5 max-[760px]:px-3 max-[760px]:pt-3">
+        <header className="mb-4 flex min-w-0 items-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#171717] text-xl text-white transition hover:bg-[#292929] focus-visible:outline-2 focus-visible:outline-[#f5ad12]"
+            aria-label="Back to browse"
+          >
+            ‹
+          </Link>
+          <div className="min-w-0">
+            <h1 className="truncate bg-[linear-gradient(180deg,#ffd463,#e79a08)] bg-clip-text font-display text-[clamp(20px,2.4vw,34px)] leading-none font-extrabold text-transparent uppercase">
+              {detail.title}
+            </h1>
+            <p className="mt-1 text-[10px] font-bold tracking-[.18em] text-[#817c75] uppercase">
+              {isSeries ? `Series · S${season} · E${episode}` : "Movie"}
+            </p>
+          </div>
+        </header>
 
-      <section className="grid grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-11 px-[max(26px,calc((100vw_-_1720px)/2))] pt-[46px] max-[1080px]:grid-cols-[minmax(0,1fr)] max-[1080px]:gap-[30px] max-[760px]:px-[18px]">
+        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md">
+          <iframe
+            key={sourceUrl}
+            ref={frameRef}
+            className="block h-full w-full border-0 bg-black"
+            src={sourceUrl}
+            title={`${detail.title} — ${mirror.name}`}
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowFullScreen
+            referrerPolicy="origin"
+          />
+        </div>
+
+        <div className="relative border-b border-white/10 py-3">
+          <div className="flex items-center justify-between gap-3 max-[640px]:flex-col max-[640px]:items-stretch">
+            <div className="flex min-w-0 items-center gap-3 pl-1 text-xs tabular-nums">
+              <time className="shrink-0 font-semibold text-[#f2efea]">{runtime}</time>
+              {endsAt && <span className="truncate text-[#8f8a83]">Ends at {endsAt}</span>}
+            </div>
+
+            <div className="flex shrink-0 flex-wrap justify-end gap-2 max-[640px]:justify-start">
+              {isSeries && seasons.length > 0 && (
+                <button
+                  type="button"
+                  className={`${TOOL_BUTTON} ${openMenu === "episodes" ? "border-white/30 bg-white/12 text-white" : ""}`}
+                  onClick={() => toggleMenu("episodes")}
+                  aria-expanded={openMenu === "episodes"}
+                >
+                  Episodes <span className="text-[#8f8a83]">S{season} E{episode}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className={`${TOOL_BUTTON} ${openMenu === "subtitles" ? "border-white/30 bg-white/12 text-white" : ""}`}
+                onClick={() => toggleMenu("subtitles")}
+                aria-expanded={openMenu === "subtitles"}
+              >
+                Subtitles
+              </button>
+              <button
+                type="button"
+                className={`${TOOL_BUTTON} ${openMenu === "servers" ? "border-white/30 bg-white/12 text-white" : ""}`}
+                onClick={() => toggleMenu("servers")}
+                aria-expanded={openMenu === "servers"}
+              >
+                Servers <span className="text-[#8f8a83]">{mirror.name}</span>
+              </button>
+            </div>
+          </div>
+
+          {openMenu && (
+            <div className="ui-menu-enter mt-3 ml-auto max-h-[min(52vh,430px)] w-[min(460px,100%)] origin-top-right overflow-auto rounded-xl border border-white/12 bg-[#111] p-3 shadow-[0_22px_60px_rgba(0,0,0,.55)]">
+              {openMenu === "episodes" && isSeries && (
+                <div>
+                  <label className="mb-3 flex items-center gap-3">
+                    <span className="text-[10px] font-bold tracking-[.12em] text-[#817c75] uppercase">Season</span>
+                    <select
+                      className="min-w-0 flex-1 cursor-pointer rounded-lg border border-white/10 bg-[#242321] px-3 py-2 text-xs font-semibold text-white outline-none"
+                      value={season}
+                      onChange={(event) => chooseSeason(Number(event.target.value))}
+                    >
+                      {seasons.map((entry) => (
+                        <option key={entry.number} value={entry.number}>{entry.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-8 gap-1.5 max-[640px]:grid-cols-6">
+                    {Array.from({ length: activeSeason?.episodeCount ?? 0 }, (_, index) => index + 1).map((number) => (
+                      <button
+                        key={number}
+                        type="button"
+                        className={`cursor-pointer rounded-lg border py-2 text-[11px] font-bold transition ${episode === number ? "border-[#f2f0ec] bg-[#f2f0ec] text-[#111]" : "border-white/8 bg-[#20201f] text-[#aaa59e] hover:bg-[#2b2a29] hover:text-white"}`}
+                        onClick={() => {
+                          setEpisode(number);
+                          setOpenMenu(null);
+                        }}
+                      >
+                        {number}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {openMenu === "subtitles" && (
+                <div className="grid grid-cols-2 gap-1 max-[480px]:grid-cols-1">
+                  {SUBTITLE_LANGUAGES.map((language) => (
+                    <button
+                      key={language.code || "default"}
+                      type="button"
+                      className={`flex cursor-pointer items-center rounded-lg px-3 py-2 text-left text-xs transition ${subtitle === language.code ? "bg-white/13 text-white" : "text-[#aaa59e] hover:bg-white/8 hover:text-white"}`}
+                      onClick={() => {
+                        setSubtitle(language.code);
+                        setOpenMenu(null);
+                      }}
+                    >
+                      {language.label}
+                      {subtitle === language.code && <span className="ml-auto text-[#f5ad12]">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {openMenu === "servers" && (
+                <div className="flex flex-col gap-1">
+                  {VIDSRC_MIRRORS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-left transition ${mirror.id === item.id ? "bg-white/13 text-white" : "text-[#aaa59e] hover:bg-white/8 hover:text-white"}`}
+                      onClick={() => {
+                        setMirror(item);
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <b className="text-xs">{item.name}</b>
+                      <span className="text-[11px] text-[#817c75]">{item.region}</span>
+                      {mirror.id === item.id && <span className="ml-auto text-[#f5ad12]">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="grid grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-11 px-[max(26px,calc((100vw_-_1720px)/2))] pt-[46px] max-[1080px]:grid-cols-1 max-[1080px]:gap-[30px] max-[760px]:px-[18px]">
         <div>
           {notice && (
             <p className="mb-[14px] rounded-xl border border-[rgba(224,160,74,.32)] bg-[rgba(224,160,74,.1)] px-[15px] py-3 text-xs leading-[1.6] text-[#e5b878]" role="status">
               {notice}
             </p>
           )}
-          <p className="text-xs font-bold tracking-[.06em] text-[#47c98d] uppercase">
-            <span>Now watching</span>
-          </p>
-          <h1 className="my-[14px] mb-5 font-display text-[clamp(30px,3.1vw,50px)] leading-none font-extrabold tracking-[-.045em]">{detail.title}</h1>
+          <p className="text-xs font-bold tracking-[.06em] text-[#47c98d] uppercase">Now watching</p>
+          <h2 className="my-[14px] mb-5 font-display text-[clamp(30px,3.1vw,50px)] leading-none font-extrabold tracking-[-.045em]">{detail.title}</h2>
           <div className="flex flex-wrap items-center gap-[10px]">
             {detail.score > 0 && <span className="text-[#47c98d]">★ {detail.score.toFixed(1)}</span>}
             {detail.year && <b className="rounded-md border border-white/18 px-[7px] py-1 text-[11px] text-[#d4d1cc]">{detail.year}</b>}
             {detail.runtime && <b className="rounded-md border border-white/18 px-[7px] py-1 text-[11px] text-[#d4d1cc]">{detail.runtime}</b>}
-            {isSeries && (
-              <b className="rounded-md border border-white/18 px-[7px] py-1 text-[11px] text-[#d4d1cc]">
-                S{season} · E{episode}
-              </b>
-            )}
+            {isSeries && <b className="rounded-md border border-white/18 px-[7px] py-1 text-[11px] text-[#d4d1cc]">S{season} · E{episode}</b>}
             <b className="rounded-md border border-white/18 px-[7px] py-1 text-[11px] text-[#d4d1cc]">{mirror.name}</b>
           </div>
           {detail.tagline && <p className="mb-[14px] text-[#d8d4ce] italic">“{detail.tagline}”</p>}
@@ -228,21 +283,13 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
         </div>
 
         <aside className="flex flex-col pt-[30px] max-[1080px]:pt-0">
-          <button className="w-full cursor-pointer rounded-xl border-0 bg-[#f2f0ec] px-[18px] py-[14px] font-extrabold text-[#111]" onClick={toggleSaved}>
+          <button className="w-full cursor-pointer rounded-xl border-0 bg-[#f2f0ec] px-[18px] py-[14px] font-extrabold text-[#111]" onClick={() => void toggleLibrary(stripDetail(detail))}>
             {saved ? "✓ Saved to my list" : "+ Add to my list"}
           </button>
           <div className="mt-7 border-t border-white/9 pt-[22px]">
             <b className="text-[13px]">Source</b>
-            <p className="text-xs text-[#77736e]">
-              {sourcePath} on {new URL(mirror.host).host}. Servers, subtitles and episodes are in the
-              player&apos;s control bar.
-            </p>
-          </div>
-          <div className="mt-7 border-t border-white/9 pt-[22px]">
-            <b className="text-[13px]">Shortcuts</b>
-            <p className="text-xs text-[#77736e] [&_kbd]:rounded-[5px] [&_kbd]:border [&_kbd]:border-white/13 [&_kbd]:bg-[#1d1d1c] [&_kbd]:px-[6px] [&_kbd]:py-[2px] [&_kbd]:font-sans [&_kbd]:text-[10px]">
-              <kbd>F</kbd> fullscreen · <kbd>Space</kbd> play/pause · <kbd>←</kbd> <kbd>→</kbd> skip
-              10s · <kbd>M</kbd> mute · <kbd>Esc</kbd> close a panel
+            <p className="text-xs leading-relaxed text-[#77736e]">
+              {sourcePath} on {new URL(mirror.host).host}. Use the buttons below the player to change servers, subtitles, or episodes.
             </p>
           </div>
         </aside>
@@ -261,9 +308,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
                 )}
                 <span className="flex flex-col p-[11px]">
                   <b>{item.title}</b>
-                  <small className="mt-1 text-[#77736e]">
-                    {item.year ?? "—"} • {item.genres[0] ?? (item.kind === "tv" ? "Series" : "Film")}
-                  </small>
+                  <small className="mt-1 text-[#77736e]">{item.year ?? "—"} • {item.genres[0] ?? (item.kind === "tv" ? "Series" : "Film")}</small>
                 </span>
               </Link>
             ))}
@@ -274,7 +319,17 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
   );
 }
 
-/** Watchlist entries only need the card fields, not the full detail payload. */
+function clock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const whole = Math.floor(seconds);
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+    : `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
 function stripDetail(detail: MediaDetail): Media {
   const { key, kind, tmdbId, title, year, overview, poster, backdrop, score, genres, accent } = detail;
   return { key, kind, tmdbId, title, year, overview, poster, backdrop, score, genres, accent };

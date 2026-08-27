@@ -17,6 +17,15 @@ export type ViewerProfile = {
   isKids: boolean;
 };
 
+export type ContinueWatchingItem = {
+  media: Media;
+  position: number;
+  duration: number;
+  season: number | null;
+  episode: number | null;
+  updatedAt: string;
+};
+
 type AuthValue = {
   configured: boolean;
   ready: boolean;
@@ -24,6 +33,7 @@ type AuthValue = {
   profiles: ViewerProfile[];
   activeProfile: ViewerProfile | null;
   library: Media[];
+  continueWatching: ContinueWatchingItem[];
   authError: string | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -31,6 +41,7 @@ type AuthValue = {
   createProfile: (name: string, isKids: boolean) => Promise<ViewerProfile | null>;
   deleteProfile: (profileId: string) => Promise<void>;
   toggleLibrary: (media: Media) => Promise<void>;
+  saveWatchProgress: (media: Media, position: number, duration: number, season?: number | null, episode?: number | null) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -60,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profiles, setProfiles] = useState<ViewerProfile[]>([]);
   const [activeProfile, setActiveProfile] = useState<ViewerProfile | null>(null);
   const [library, setLibrary] = useState<Media[]>([]);
+  const [continueWatching, setContinueWatching] = useState<ContinueWatchingItem[]>([]);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const loadLibrary = useCallback(async (profile: ViewerProfile) => {
@@ -75,6 +87,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setLibrary((data ?? []).map((row: { media: unknown }) => row.media as Media));
+  }, []);
+
+  const loadContinueWatching = useCallback(async (profile: ViewerProfile) => {
+    const supabase = createClient();
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("watch_progress")
+      .select("media,position,duration,season,episode,updated_at")
+      .eq("profile_id", profile.id)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    if (error) {
+      setAuthError("Viewing progress could not be loaded. Apply the latest Supabase migration.");
+      return;
+    }
+    setContinueWatching((data ?? []).map((row: Record<string, unknown>) => ({
+      media: row.media as Media,
+      position: Number(row.position) || 0,
+      duration: Number(row.duration) || 0,
+      season: row.season == null ? null : Number(row.season),
+      episode: row.episode == null ? null : Number(row.episode),
+      updatedAt: String(row.updated_at),
+    })));
   }, []);
 
   const hydrateProfiles = useCallback(async (nextUser: User) => {
@@ -110,8 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedId = window.localStorage.getItem(`wmn-active-profile-${nextUser.id}`);
     const stored = nextProfiles.find((profile) => profile.id === storedId) ?? null;
     setActiveProfile(stored);
-    if (stored) await loadLibrary(stored);
-  }, [loadLibrary]);
+    if (stored) await Promise.all([loadLibrary(stored), loadContinueWatching(stored)]);
+  }, [loadContinueWatching, loadLibrary]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -142,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfiles([]);
           setActiveProfile(null);
           setLibrary(readLocalLibrary());
+          setContinueWatching([]);
         }
       });
       unsubscribe = () => listener.subscription.unsubscribe();
@@ -174,13 +210,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfiles([]);
     setActiveProfile(null);
     setLibrary(readLocalLibrary());
+    setContinueWatching([]);
   }, []);
 
   const selectProfile = useCallback(async (profile: ViewerProfile) => {
     setActiveProfile(profile);
+    setLibrary([]);
+    setContinueWatching([]);
     if (user) window.localStorage.setItem(`wmn-active-profile-${user.id}`, profile.id);
-    await loadLibrary(profile);
-  }, [loadLibrary, user]);
+    await Promise.all([loadLibrary(profile), loadContinueWatching(profile)]);
+  }, [loadContinueWatching, loadLibrary, user]);
 
   const createProfile = useCallback(async (name: string, isKids: boolean) => {
     const supabase = createClient();
@@ -213,6 +252,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (activeProfile?.id === profileId) {
       setActiveProfile(null);
       setLibrary([]);
+      setContinueWatching([]);
     }
   }, [activeProfile?.id, profiles.length]);
 
@@ -243,6 +283,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeProfile, library, user]);
 
+  const saveWatchProgress = useCallback(async (
+    media: Media,
+    position: number,
+    duration: number,
+    season: number | null = null,
+    episode: number | null = null,
+  ) => {
+    if (!user || !activeProfile || position < 5) return;
+    const supabase = createClient();
+    if (!supabase) return;
+
+    if (duration > 0 && position / duration >= 0.95) {
+      setContinueWatching((current) => current.filter((item) => item.media.key !== media.key));
+      await supabase.from("watch_progress").delete().eq("profile_id", activeProfile.id).eq("media_key", media.key);
+      return;
+    }
+
+    const updatedAt = new Date().toISOString();
+    const next: ContinueWatchingItem = { media, position, duration, season, episode, updatedAt };
+    setContinueWatching((current) => [next, ...current.filter((item) => item.media.key !== media.key)].slice(0, 20));
+    const { error } = await supabase.from("watch_progress").upsert({
+      owner_id: user.id,
+      profile_id: activeProfile.id,
+      media_key: media.key,
+      media,
+      position,
+      duration,
+      season,
+      episode,
+      updated_at: updatedAt,
+    }, { onConflict: "profile_id,media_key" });
+    if (error) setAuthError("Viewing progress could not be saved.");
+  }, [activeProfile, user]);
+
   const value = useMemo<AuthValue>(() => ({
     configured: isSupabaseConfigured,
     ready,
@@ -250,6 +324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profiles,
     activeProfile,
     library,
+    continueWatching,
     authError,
     signInWithGoogle,
     signOut,
@@ -257,7 +332,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     createProfile,
     deleteProfile,
     toggleLibrary,
-  }), [activeProfile, authError, createProfile, deleteProfile, library, profiles, ready, selectProfile, signInWithGoogle, signOut, toggleLibrary, user]);
+    saveWatchProgress,
+  }), [activeProfile, authError, continueWatching, createProfile, deleteProfile, library, profiles, ready, saveWatchProgress, selectProfile, signInWithGoogle, signOut, toggleLibrary, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

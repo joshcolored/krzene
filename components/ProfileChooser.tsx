@@ -38,10 +38,20 @@ export function ProfileChooser({ open, onClose }: { open: boolean; onClose: () =
   };
 
   return (
-    <div className="fixed inset-0 z-100 flex min-h-dvh items-center justify-center overflow-y-auto bg-[radial-gradient(circle_at_50%_42%,rgba(31,48,46,.9),rgba(8,9,9,.98)_55%)] px-6 pt-[90px] pb-[54px] max-[760px]:items-start max-[760px]:px-4 max-[760px]:pt-[118px] max-[760px]:pb-10" role="dialog" aria-modal="true" aria-labelledby="profile-title">
-      {activeProfile && <button className="absolute top-[22px] right-7 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-white/8 text-2xl leading-none max-[760px]:top-4 max-[760px]:right-[17px]" onClick={onClose} aria-label="Close profile chooser">×</button>}
+    <div className="ui-modal-enter fixed inset-0 z-100 flex min-h-dvh items-center justify-center overflow-y-auto bg-[radial-gradient(circle_at_50%_42%,rgba(31,48,46,.9),rgba(8,9,9,.98)_55%)] px-6 pt-[90px] pb-[54px] max-[760px]:items-start max-[760px]:px-4 max-[760px]:pt-[118px] max-[760px]:pb-10" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+      {activeProfile && (
+        <button
+          className="absolute top-[22px] right-7 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-white/8 text-[#bbb7b0] transition hover:border-white/20 hover:bg-white/14 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white max-[760px]:top-4 max-[760px]:right-[17px]"
+          onClick={onClose}
+          aria-label="Close profile chooser"
+        >
+          <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      )}
       <img className="absolute top-6 left-7 h-[34px] w-auto max-[760px]:top-5 max-[760px]:left-[18px] max-[760px]:h-7" src="/krzene-logo.svg" alt="Krzene" />
-      <div className="w-full max-w-[820px] text-center">
+      <div className="ui-modal-panel-enter w-full max-w-[820px] text-center">
         <p className="mb-4 inline-block rounded-[20px] border border-white/9 bg-white/7 px-[13px] py-2 text-xs text-[#aaa6a0]">{user.email}</p>
         <h1 className="font-display my-[10px] text-[clamp(38px,5vw,64px)] leading-none font-extrabold tracking-[-.045em] max-[760px]:text-[40px]" id="profile-title">{mode === "add" ? "Create a profile" : mode === "manage" ? "Manage profiles" : "Who’s watching?"}</h1>
         <p className="m-0 text-[#aaa6a0]">{mode === "add" ? "Give everyone their own library." : "Choose a profile to continue."}</p>

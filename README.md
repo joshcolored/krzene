@@ -61,16 +61,18 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Database setup
 
-Open the Supabase SQL Editor and run the complete migration:
+Open the Supabase SQL Editor and run both migrations in order:
 
 ```text
 supabase/migrations/20260826000000_profiles_and_libraries.sql
+supabase/migrations/20260827000000_watch_progress.sql
 ```
 
 The migration creates:
 
 - `viewer_profiles` for the profiles belonging to each authenticated account
 - `library_items` for saved titles belonging to a specific viewer profile
+- `watch_progress` for the signed-in profile's Continue Watching rail
 - Foreign keys and indexes
 - Row Level Security policies for selecting, creating, editing, and deleting data
 
@@ -204,7 +206,7 @@ components/
   ProfileChooser.tsx   Viewer selection and profile management
   StreamingHome.tsx    Catalog, navigation, rails, and footer
   WatchExperience.tsx  Watch page and library integration
-  PlayerChrome.tsx     Custom playback interface
+  WatchExperience.tsx  Provider player, servers, subtitles, and episodes
 lib/
   supabase/            Browser, server, and middleware clients
   home.ts              Home catalog assembly
@@ -225,7 +227,7 @@ https://your-project-ref.supabase.co/auth/v1/callback
 
 ### Profiles are not ready
 
-Run the SQL migration in the Supabase SQL Editor and confirm that `viewer_profiles` and `library_items` exist.
+Run both SQL migrations in the Supabase SQL Editor and confirm that `viewer_profiles`, `library_items`, and `watch_progress` exist.
 
 ### Authentication works locally but fails on Vercel
 

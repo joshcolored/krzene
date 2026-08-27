@@ -9,7 +9,7 @@ import { ProfileChooser } from "./ProfileChooser";
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
 type NavItem = (typeof NAV_ITEMS)[number];
 
-type IconName = "home" | "movie" | "shows" | "anime" | "library" | "search" | "menu" | "chevron-left" | "chevron-right";
+type IconName = "home" | "movie" | "shows" | "anime" | "library" | "search" | "menu" | "chevron-left" | "chevron-right" | "play" | "check" | "plus";
 
 const NAV_ICONS: Record<NavItem, IconName> = {
   Home: "home",
@@ -39,6 +39,9 @@ function UiIcon({ name }: { name: IconName }) {
       {name === "menu" && <><path d="M5 7h14M5 12h14M5 17h14" /></>}
       {name === "chevron-left" && <path d="m14.5 6-6 6 6 6" />}
       {name === "chevron-right" && <path d="m9.5 6 6 6-6 6" />}
+      {name === "play" && <path d="m8.5 6 9 6-9 6V6Z" />}
+      {name === "check" && <path d="m5 12.5 4.2 4.2L19 7" />}
+      {name === "plus" && <path d="M12 5v14M5 12h14" />}
     </svg>
   );
 }
@@ -52,6 +55,16 @@ function subtitleFor(media: Media): string {
   return [media.year ? String(media.year) : null, media.genres[0] ?? kindLabel].filter(Boolean).join(" • ");
 }
 
+function clockLabel(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+    : `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
 function MediaCard({ media, saved, onSave }: { media: Media; saved: boolean; onSave: () => void }) {
   const art = artFor(media);
   return (
@@ -59,7 +72,7 @@ function MediaCard({ media, saved, onSave }: { media: Media; saved: boolean; onS
       <Link href={watchHref(media)} className="group relative block aspect-[1.56] overflow-hidden rounded-[15px] border border-white/5 bg-[#171717] shadow-[0_18px_35px_rgba(0,0,0,.28)]" aria-label={`Watch ${media.title}`}>
         {art ? <img className="h-full w-full object-cover transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:scale-[1.055]" src={art} alt="" loading="lazy" /> : <span className="flex h-full w-full items-center justify-center bg-[linear-gradient(140deg,#1d1d1d,#121212)] p-4 text-center font-display text-[13px] leading-[1.3] font-bold text-[#5f5c58]">{media.title}</span>}
         <span className="absolute inset-0 bg-[linear-gradient(0deg,rgba(0,0,0,.72),transparent_56%)]" />
-        <span className="absolute top-1/2 left-1/2 flex h-[42px] w-[42px] -translate-x-1/2 -translate-y-[40%] items-center justify-center rounded-full bg-white/90 pl-[3px] text-[#0b0b0b] opacity-0 transition duration-250 group-hover:-translate-y-1/2 group-hover:opacity-100">▶</span>
+        <span className="absolute top-1/2 left-1/2 flex h-[42px] w-[42px] -translate-x-1/2 -translate-y-[40%] items-center justify-center rounded-full bg-white/90 text-xl text-[#0b0b0b] opacity-0 transition duration-250 group-hover:-translate-y-1/2 group-hover:opacity-100"><UiIcon name="play" /></span>
         <span className="absolute right-[10px] bottom-[10px] rounded-[5px] border border-white/18 bg-black/70 px-[5px] py-[3px] text-[9px] font-extrabold">{media.kind === "tv" ? "SERIES" : "HD"}</span>
         {media.score > 0 && <span className="absolute bottom-[10px] left-[10px] rounded-[5px] border border-white/16 bg-black/72 px-[5px] py-[3px] text-[9px] font-extrabold">★ {media.score.toFixed(1)}</span>}
       </Link>
@@ -73,7 +86,7 @@ function MediaCard({ media, saved, onSave }: { media: Media; saved: boolean; onS
           onClick={onSave}
           aria-label={saved ? `Remove ${media.title} from watchlist` : `Add ${media.title} to watchlist`}
         >
-          {saved ? "✓" : "+"}
+          <span className="flex items-center justify-center text-base"><UiIcon name={saved ? "check" : "plus"} /></span>
         </button>
       </div>
     </article>
@@ -171,15 +184,20 @@ function CatalogHome({
   const [query, setQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [watchingKey, setWatchingKey] = useState<string | null>(null);
   const [results, setResults] = useState<Media[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [showProfiles, setShowProfiles] = useState(false);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const searchToken = useRef(0);
   const {
     ready: authReady,
     user,
     activeProfile,
     library: savedItems,
+    continueWatching,
     authError,
     signInWithGoogle,
     toggleLibrary,
@@ -187,11 +205,22 @@ function CatalogHome({
 
   useEffect(() => {
     if (authReady && user && !activeProfile) setShowProfiles(true);
+    if (user) setShowSignIn(false);
   }, [activeProfile, authReady, user]);
 
   const savedKeys = useMemo(() => new Set(savedItems.map((item) => item.key)), [savedItems]);
 
   const toggleSaved = useCallback((media: Media) => void toggleLibrary(media), [toggleLibrary]);
+
+  const beginGoogleSignIn = async () => {
+    if (signingIn) return;
+    setSigningIn(true);
+    try {
+      await signInWithGoogle();
+    } finally {
+      setSigningIn(false);
+    }
+  };
 
   // Debounced server-side search keeps the TMDB credential off the client.
   useEffect(() => {
@@ -237,8 +266,38 @@ function CatalogHome({
     [rails],
   );
 
+  const featureFilms = useMemo(() => {
+    const candidates = [hero, ...rails.flatMap((rail) => rail.items)]
+      .filter((item) => item.kind === "movie" && Boolean(item.backdrop));
+    const seen = new Set<string>();
+    return candidates.filter((item) => {
+      if (seen.has(item.key)) return false;
+      seen.add(item.key);
+      return true;
+    }).slice(0, 7);
+  }, [hero, rails]);
+
+  useEffect(() => {
+    if (featureFilms.length < 2) return;
+    const timer = window.setInterval(
+      () => setHeroIndex((current) => (current + 1) % featureFilms.length),
+      8000,
+    );
+    return () => window.clearInterval(timer);
+  }, [featureFilms.length]);
+
+  useEffect(() => {
+    if (!watchingKey) return;
+    const timer = window.setTimeout(() => setWatchingKey(null), 10000);
+    return () => window.clearTimeout(timer);
+  }, [watchingKey]);
+
+  const activeHero = featureFilms[heroIndex] ?? hero;
+  const activeHeroRuntime = activeHero.key === hero.key ? hero.runtime : "";
+  const activeHeroTagline = activeHero.key === hero.key ? hero.tagline : "";
+
   const topTen = rails.find((rail) => rail.id === "trending")?.items.slice(0, 10) ?? [];
-  const heroArt = hero.backdrop ?? hero.poster;
+  const heroArt = activeHero.backdrop ?? activeHero.poster;
   const trimmedQuery = query.trim();
 
   return (
@@ -249,7 +308,7 @@ function CatalogHome({
         </Link>
         <nav className="flex flex-1 justify-center gap-0.5 max-[760px]:justify-around" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => (
-            <button key={item} className={`flex cursor-pointer items-center gap-[7px] rounded-[13px] border-0 px-3.5 py-3 text-[13px] font-bold text-[#9e9b97] transition hover:bg-white/12 hover:text-white max-[1080px]:px-[9px] max-[1080px]:[&_.nav-icon]:hidden max-[760px]:px-2.5 max-[760px]:text-[0px] max-[760px]:[&_.nav-icon]:inline max-[760px]:[&_.nav-icon]:text-xl ${item !== "Home" ? "max-[760px]:hidden" : ""} ${active === item ? "bg-white/12 text-white" : "bg-transparent"}`} onClick={() => setActive(item)} aria-pressed={active === item}>
+            <button key={item} className={`flex cursor-pointer items-center gap-[7px] rounded-[13px] border-0 px-3.5 py-3 text-[13px] font-bold text-[#9e9b97] transition hover:bg-white/12 hover:text-white max-[1080px]:px-[9px] max-[1080px]:[&_.nav-icon]:hidden max-[760px]:hidden ${active === item ? "bg-white/12 text-white" : "bg-transparent"}`} onClick={() => setActive(item)} aria-pressed={active === item}>
               <span className="nav-icon text-[17px] font-normal text-[#aaa6a0]" aria-hidden="true">
                 <UiIcon name={NAV_ICONS[item]} />
               </span>{" "}
@@ -257,15 +316,6 @@ function CatalogHome({
               {item === "Library" && savedItems.length > 0 && <i className="ml-[5px] rounded-[9px] bg-krzene-red px-[5px] py-[3px] text-[10px] leading-none font-bold not-italic">{savedItems.length}</i>}
             </button>
           ))}
-          <button
-            type="button"
-            className={`hidden cursor-pointer items-center gap-1.5 rounded-[13px] border-0 px-2.5 py-2.5 text-[20px] transition max-[760px]:flex ${showMobileMenu ? "bg-white/12 text-white" : "bg-transparent text-[#aaa6a0]"}`}
-            onClick={() => setShowMobileMenu((current) => !current)}
-            aria-label="More navigation"
-            aria-expanded={showMobileMenu}
-          >
-            <UiIcon name="menu" />
-          </button>
         </nav>
         <div className="flex items-center gap-[7px] border-l border-white/9 pl-3 max-[760px]:border-0 max-[760px]:p-0">
           <button
@@ -277,20 +327,29 @@ function CatalogHome({
             <UiIcon name="search" /> <span>Search</span>
           </button>
           <button
+            type="button"
+            className={`hidden h-10 cursor-pointer items-center justify-center rounded-xl border-0 px-[7px] text-[21px] transition max-[760px]:flex ${showMobileMenu ? "bg-white/12 text-white" : "bg-transparent text-[#aaa6a0]"}`}
+            onClick={() => setShowMobileMenu((current) => !current)}
+            aria-label="More navigation"
+            aria-expanded={showMobileMenu}
+          >
+            <UiIcon name="menu" />
+          </button>
+          <button
             className="flex cursor-pointer items-center gap-2 border-0 bg-transparent"
-            onClick={() => user ? setShowProfiles(true) : void signInWithGoogle()}
+            onClick={() => user ? setShowProfiles(true) : setShowSignIn(true)}
             aria-label={user ? "Choose or manage profile" : "Sign in with Google"}
           >
             <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#d9edf5] text-xs text-[#1c252b] shadow-[0_0_0_3px_rgba(255,255,255,.05)] max-[760px]:h-[34px] max-[760px]:w-[34px] ${activeProfile?.avatarUrl ? "overflow-hidden" : ""}`}>
-              {activeProfile?.avatarUrl ? <img className="h-full w-full object-cover" src={activeProfile.avatarUrl} alt="" referrerPolicy="no-referrer" /> : (activeProfile?.name || user?.email || "G").slice(0, 1).toUpperCase()}
+              {activeProfile?.avatarUrl ? <img className="h-full w-full object-cover" src={activeProfile.avatarUrl} alt="" referrerPolicy="no-referrer" /> : (activeProfile?.name || user?.email || "S").slice(0, 1).toUpperCase()}
             </span>
-            <b className="pr-[5px] text-xs max-[760px]:hidden">{user ? activeProfile?.name || "Profiles" : "Google"}</b>
+            <b className="pr-[5px] text-xs max-[760px]:hidden">{user ? activeProfile?.name || "Profiles" : "Sign In"}</b>
           </button>
         </div>
 
         {showMobileMenu && (
-          <div className="absolute top-[calc(100%_+_8px)] right-0 hidden w-[220px] flex-col gap-1 rounded-2xl border border-white/10 bg-[rgba(14,14,14,.98)] p-2 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-2xl max-[760px]:flex" role="menu">
-            {NAV_ITEMS.filter((item) => item !== "Home").map((item) => (
+          <div className="ui-menu-enter absolute top-[calc(100%_+_8px)] right-0 hidden w-[220px] origin-top-right flex-col gap-1 rounded-2xl border border-white/10 bg-[rgba(14,14,14,.98)] p-2 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-2xl max-[760px]:flex" role="menu">
+            {NAV_ITEMS.map((item) => (
               <button
                 key={item}
                 type="button"
@@ -311,7 +370,7 @@ function CatalogHome({
       </header>
 
       {showSearch && (
-        <div className="fixed top-[94px] left-1/2 z-49 flex w-[calc(100%_-_40px)] max-w-[620px] -translate-x-1/2 items-center gap-3 rounded-[18px] border border-white/9 bg-[rgba(18,18,18,.96)] p-[10px_12px_10px_18px] shadow-[0_25px_80px_#000] max-[760px]:top-[82px]">
+        <div className="ui-search-enter fixed top-[94px] left-1/2 z-49 flex w-[calc(100%_-_40px)] max-w-[620px] -translate-x-1/2 items-center gap-3 rounded-[18px] border border-white/9 bg-[rgba(18,18,18,.96)] p-[10px_12px_10px_18px] shadow-[0_25px_80px_#000] max-[760px]:top-[82px]">
           <span className="text-[22px] text-[#8c8882]"><UiIcon name="search" /></span>
           <input
             className="flex-1 border-0 bg-transparent py-2.5 text-[15px] text-white outline-none"
@@ -332,13 +391,67 @@ function CatalogHome({
       )}
 
       {!user && authError && (
-        <div className="fixed top-[94px] left-1/2 z-80 flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-3.5 rounded-xl border border-[rgba(226,25,39,.45)] bg-[#251213] px-3.5 py-[11px] max-[760px]:top-[82px]" role="status">
+        <div className="ui-toast-enter fixed top-[94px] left-1/2 z-80 flex max-w-[calc(100%_-_32px)] -translate-x-1/2 items-center gap-3.5 rounded-xl border border-[rgba(226,25,39,.45)] bg-[#251213] px-3.5 py-[11px] max-[760px]:top-[82px]" role="status">
           <span className="text-xs text-[#e8c7c9]">{authError}</span>
-          <button className="cursor-pointer whitespace-nowrap rounded-lg border-0 bg-krzene-red px-2.5 py-[7px] text-[11px] font-extrabold" onClick={() => void signInWithGoogle()}>Try again</button>
+          <button className="cursor-pointer whitespace-nowrap rounded-lg border-0 bg-krzene-red px-2.5 py-[7px] text-[11px] font-extrabold" onClick={() => setShowSignIn(true)}>Try again</button>
         </div>
       )}
 
       <ProfileChooser open={showProfiles} onClose={() => setShowProfiles(false)} />
+
+      {showSignIn && !user && (
+        <div
+          className="ui-modal-enter fixed inset-0 z-100 flex min-h-dvh items-center justify-center bg-black/75 px-5 py-10 backdrop-blur-xl"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !signingIn) setShowSignIn(false);
+          }}
+        >
+          <section
+            className="ui-modal-panel-enter relative w-full max-w-[430px] rounded-[24px] border border-white/10 bg-[linear-gradient(145deg,#191919,#0d0d0d)] px-8 py-9 text-center shadow-[0_35px_110px_rgba(0,0,0,.75)] max-[560px]:rounded-[20px] max-[560px]:px-5 max-[560px]:py-7"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sign-in-title"
+          >
+            <button
+              type="button"
+              className="absolute top-4 right-4 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-white/6 text-[#aaa6a0] transition hover:bg-white/13 hover:text-white disabled:cursor-wait disabled:opacity-45"
+              onClick={() => setShowSignIn(false)}
+              disabled={signingIn}
+              aria-label="Close sign in"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+
+            <img className="mx-auto mb-6 h-14 w-14 rounded-[17px]" src="/krzene-mark.svg" alt="" />
+            <h2 id="sign-in-title" className="font-display text-[28px] leading-tight font-extrabold tracking-[-.035em]">Sign in to Krzene</h2>
+            <p className="mx-auto mt-3 mb-7 max-w-[330px] text-sm leading-relaxed text-[#96918a]">
+              Keep your profiles, library, and viewing progress synced across devices.
+            </p>
+
+            <button
+              type="button"
+              className="flex min-h-[52px] w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-[#dadce0] bg-white px-5 font-bold text-[#202124] transition hover:bg-[#f7f8f8] active:scale-[.985] disabled:cursor-wait disabled:opacity-75"
+              onClick={() => void beginGoogleSignIn()}
+              disabled={signingIn}
+            >
+              {signingIn ? (
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-black/20 border-t-[#4285f4]" aria-hidden="true" />
+              ) : (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M21.6 12.23c0-.72-.06-1.42-.19-2.09H12v3.96h5.38a4.6 4.6 0 0 1-2 3.02v2.57h3.24c1.9-1.75 2.98-4.33 2.98-7.46Z" />
+                  <path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.43l-3.24-2.57c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.65A10 10 0 0 0 12 22Z" />
+                  <path fill="#FBBC05" d="M6.39 13.83A6 6 0 0 1 6.08 12c0-.64.11-1.26.31-1.83V7.52H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.48l3.35-2.65Z" />
+                  <path fill="#EA4335" d="M12 6.04c1.47 0 2.79.51 3.83 1.5l2.87-2.87A9.65 9.65 0 0 0 12 2a10 10 0 0 0-8.96 5.52l3.35 2.65C7.18 7.8 9.39 6.04 12 6.04Z" />
+                </svg>
+              )}
+              <span>{signingIn ? "Connecting…" : "Continue with Google"}</span>
+            </button>
+
+            {authError && <p className="mt-4 text-xs leading-relaxed text-[#ff8b93]">{authError}</p>}
+            <p className="mt-6 text-[11px] leading-relaxed text-[#66625d]">Google is only used to authenticate your Krzene account.</p>
+          </section>
+        </div>
+      )}
 
       <section
         className="relative flex min-h-[780px] items-start overflow-hidden bg-[#090909] bg-cover bg-[position:63%_45%] max-[760px]:min-h-[720px] max-[760px]:bg-[position:62%_center]"
@@ -349,34 +462,63 @@ function CatalogHome({
         }
       >
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,3,3,.98)_0%,rgba(4,4,4,.78)_31%,rgba(5,5,5,.1)_66%),linear-gradient(0deg,#070707_0%,transparent_45%)] max-[760px]:bg-[linear-gradient(0deg,#070707_2%,rgba(4,4,4,.45)_60%,rgba(0,0,0,.25)),linear-gradient(90deg,rgba(0,0,0,.65),transparent)]" />
-        <div className="absolute inset-0 z-[1]" style={{ background: `radial-gradient(circle at 40% 18%, color-mix(in srgb, ${hero.accent} 22%, transparent), transparent 42%)` }} />
-        <div className="relative z-[2] w-full max-w-[650px] pt-[132px] pl-[max(64px,calc((100vw_-_1310px)/2))] max-[760px]:px-[22px] max-[760px]:pt-[92px]">
+        <div className="absolute inset-0 z-[1]" style={{ background: `radial-gradient(circle at 40% 18%, color-mix(in srgb, ${activeHero.accent} 22%, transparent), transparent 42%)` }} />
+        <div
+          className="absolute inset-x-0 bottom-0 z-[1] h-[260px] bg-black/55 backdrop-blur-3xl"
+          style={{
+            WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 32%, black 100%)",
+            maskImage: "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 32%, black 100%)",
+          }}
+          aria-hidden="true"
+        />
+        <div className="relative z-[2] ml-[max(64px,calc((100vw_-_1310px)/2))] w-[min(650px,calc(100%_-_128px))] pt-[156px] pb-[110px] max-[760px]:mx-0 max-[760px]:w-full max-[760px]:px-[22px] max-[760px]:pt-[132px] max-[760px]:pb-[105px]">
           <p className="text-xs font-bold tracking-[.06em] text-[#a8a39c] uppercase [&_span]:text-[#47c98d]">
-            <span>{hero.kind === "tv" ? "Series" : "Feature film"}</span> • Trending now
+            <span>Feature film</span> • Trending now
           </p>
-          <h1 className="my-2 flex h-[238px] max-w-[650px] items-center overflow-hidden font-display text-[clamp(48px,5.8vw,82px)] leading-[.94] font-extrabold tracking-[-.06em] [text-shadow:0_12px_50px_#000] max-[760px]:h-[164px] max-[760px]:text-[clamp(42px,13vw,54px)]">{hero.title}</h1>
+          <h1 className="my-4 flex min-h-[190px] max-w-[650px] items-center text-balance break-words font-display text-[clamp(44px,5.2vw,78px)] leading-[.94] font-extrabold tracking-[-.055em] [overflow-wrap:anywhere] [text-shadow:0_12px_50px_#000] max-[760px]:my-3 max-[760px]:min-h-[124px] max-[760px]:text-[clamp(36px,10.5vw,50px)]">{activeHero.title}</h1>
           <div className="flex flex-wrap items-center gap-2.5 [&>b]:rounded-md [&>b]:border [&>b]:border-white/18 [&>b]:px-[7px] [&>b]:py-1 [&>b]:text-[11px] [&>b]:text-[#d4d1cc] [&>span]:text-[#47c98d]">
-            {hero.score > 0 && <span>★ {hero.score.toFixed(1)}</span>}
-            {hero.year && <b>{hero.year}</b>}
-            {hero.runtime && <b>{hero.runtime}</b>}
-            {hero.genres.map((genre) => (
+            {activeHero.score > 0 && <span>★ {activeHero.score.toFixed(1)}</span>}
+            {activeHero.year && <b>{activeHero.year}</b>}
+            {activeHeroRuntime && <b>{activeHeroRuntime}</b>}
+            {activeHero.genres.slice(0, 2).map((genre) => (
               <b key={genre}>{genre}</b>
             ))}
           </div>
-          <p className="max-w-[540px] text-base leading-[1.65] text-[#c2beb8] max-[760px]:text-sm">{hero.tagline || hero.overview}</p>
-          <div className="mt-7 flex w-full gap-2.5">
-            <Link href={watchHref(hero)} className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] bg-[#f5f3ef] px-5 py-3.5 font-extrabold text-[#0d0d0d] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm">
-              ▶ <span>Watch now</span>
+          <p className="line-clamp-2 max-w-[540px] text-base leading-[1.65] text-[#c2beb8] max-[760px]:mt-2 max-[760px]:text-sm">{activeHeroTagline || activeHero.overview}</p>
+          <div className="mt-7 flex w-full gap-2.5 max-[760px]:mt-5">
+            <Link
+              href={watchHref(activeHero)}
+              className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] bg-[#f5f3ef] px-5 py-3.5 font-extrabold text-[#0d0d0d] transition active:scale-[.98] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm"
+              onClick={() => setWatchingKey(activeHero.key)}
+              aria-busy={watchingKey === activeHero.key}
+            >
+              {watchingKey === activeHero.key ? (
+                <><span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-black/20 border-t-black" aria-hidden="true" /><span>Watching…</span></>
+              ) : (
+                <><span className="text-lg"><UiIcon name="play" /></span><span>Watch now</span></>
+              )}
             </Link>
-            <button className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] border-0 bg-white/12 px-5 py-3.5 font-extrabold text-white backdrop-blur-[10px] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm" onClick={() => toggleSaved(hero)}>
-              {savedKeys.has(hero.key) ? "✓ In my list" : "+ My list"}
+            <button className="inline-flex min-h-[52px] cursor-pointer items-center justify-center gap-2.5 whitespace-nowrap rounded-[13px] border-0 bg-white/12 px-5 py-3.5 font-extrabold text-white backdrop-blur-[10px] max-[760px]:min-w-0 max-[760px]:flex-1 max-[760px]:px-[11px] max-[760px]:text-sm" onClick={() => toggleSaved(activeHero)}>
+              <span className="text-lg"><UiIcon name={savedKeys.has(activeHero.key) ? "check" : "plus"} /></span>
+              <span>{savedKeys.has(activeHero.key) ? "In my list" : "My list"}</span>
             </button>
           </div>
+          {featureFilms.length > 1 && (
+            <div className="mt-5 flex items-center gap-3" aria-label="Feature film carousel controls">
+              <button type="button" className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-black/30 text-white backdrop-blur-md transition hover:bg-white hover:text-black" onClick={() => setHeroIndex((current) => (current - 1 + featureFilms.length) % featureFilms.length)} aria-label="Previous feature film"><UiIcon name="chevron-left" /></button>
+              <div className="flex gap-1.5">
+                {featureFilms.map((film, index) => (
+                  <button key={film.key} type="button" className={`h-1.5 cursor-pointer rounded-full border-0 transition-all ${index === heroIndex ? "w-7 bg-white" : "w-1.5 bg-white/35 hover:bg-white/65"}`} onClick={() => setHeroIndex(index)} aria-label={`Show ${film.title}`} aria-current={index === heroIndex ? "true" : undefined} />
+                ))}
+              </div>
+              <button type="button" className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-black/30 text-white backdrop-blur-md transition hover:bg-white hover:text-black" onClick={() => setHeroIndex((current) => (current + 1) % featureFilms.length)} aria-label="Next feature film"><UiIcon name="chevron-right" /></button>
+            </div>
+          )}
         </div>
       </section>
 
-      <div className="relative z-[4] mt-[34px] bg-[linear-gradient(#070707,#090909)] px-[max(64px,calc((100vw_-_1310px)/2))] pb-[100px] max-[760px]:-mt-[65px] max-[760px]:px-5 max-[760px]:pb-[120px]">
-        <div className="mb-[34px] border-b border-white/9 pb-4 text-[11px] tracking-[.02em] text-[#6f6b66] max-[760px]:mb-[26px] [&_b]:text-[#c9c5bf]">
+      <div className="relative z-[4] -mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] px-[max(64px,calc((100vw_-_1310px)/2))] pt-[90px] pb-[100px] max-[760px]:-mt-[140px] max-[760px]:px-5 max-[760px]:pt-[82px] max-[760px]:pb-[120px]">
+        <div className="mb-[34px] rounded-xl border border-white/7 bg-black/25 px-4 py-3 text-[11px] tracking-[.02em] text-[#77736e] shadow-[0_12px_34px_rgba(0,0,0,.2)] backdrop-blur-xl max-[760px]:mb-[26px] [&_b]:text-[#d2cec8]">
           <b>{totalTitles.toLocaleString()}</b> Movies and Series loaded
           {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""}
         </div>
@@ -428,6 +570,45 @@ function CatalogHome({
           </section>
         ) : (
           <>
+            {active === "Home" && user && activeProfile && continueWatching.length > 0 && (
+              <section className="mb-[72px] max-[760px]:mb-[55px]">
+                <div className="mb-[19px] flex items-end justify-between">
+                  <div>
+                    <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">FOR {activeProfile.name.toUpperCase()}</span>
+                    <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">Continue watching</h2>
+                  </div>
+                  <span className="text-[11px] font-bold text-[#6f6b66]">{continueWatching.length} saved</span>
+                </div>
+                <div className="media-rail flex snap-x snap-proximity gap-4 overflow-x-auto pb-[10px] max-[760px]:mr-[-20px] max-[760px]:pr-5">
+                  {continueWatching.map((item) => {
+                    const progress = item.duration > 0 ? Math.min(item.position / item.duration, 1) : 0;
+                    const resumeQuery = new URLSearchParams({ t: String(Math.floor(item.position)) });
+                    if (item.season != null) resumeQuery.set("season", String(item.season));
+                    if (item.episode != null) resumeQuery.set("episode", String(item.episode));
+                    return (
+                      <Link
+                        key={item.media.key}
+                        href={`${watchHref(item.media)}?${resumeQuery.toString()}`}
+                        className="group min-w-0 shrink-0 basis-[calc((100%_-_64px)/5)] snap-start max-[1080px]:basis-[calc((100%_-_32px)/3)] max-[760px]:basis-[74vw]"
+                      >
+                        <span className="relative block aspect-[1.56] overflow-hidden rounded-[15px] border border-white/6 bg-[#171717]">
+                          {artFor(item.media) ? <img className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.055]" src={artFor(item.media)!} alt="" /> : <span className="flex h-full items-center justify-center text-[#77736e]">{item.media.title}</span>}
+                          <span className="absolute inset-0 bg-[linear-gradient(0deg,rgba(0,0,0,.72),transparent_58%)]" />
+                          <span className="absolute bottom-0 left-0 h-1 bg-krzene-red transition-all" style={{ width: `${progress * 100}%` }} />
+                          <span className="absolute right-3 bottom-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-lg text-black shadow-lg transition group-hover:scale-105"><UiIcon name="play" /></span>
+                        </span>
+                        <span className="flex min-w-0 flex-col px-1 pt-3">
+                          <b className="truncate text-sm">{item.media.title}</b>
+                          <small className="mt-1 text-[#77736e]">
+                            {item.season != null && item.episode != null ? `S${item.season} · E${item.episode} · ` : ""}Resume at {clockLabel(item.position)}
+                          </small>
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
             {active === "Home" && topTen.length > 0 && (
               <section>
                 <div className="mb-[19px] flex items-end justify-between">
@@ -494,7 +675,7 @@ function CatalogHome({
               setActive("Library");
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}>My library</button>
-            <button onClick={() => user ? setShowProfiles(true) : void signInWithGoogle()}>
+            <button onClick={() => user ? setShowProfiles(true) : setShowSignIn(true)}>
               {user ? "Switch profile" : "Sign in with Google"}
             </button>
           </div>
@@ -508,7 +689,7 @@ function CatalogHome({
 
         <div className="grid grid-cols-[1fr_minmax(280px,1.5fr)_1fr] items-center gap-5 border-t border-white/6 pt-6 text-[10px] max-[760px]:grid-cols-1 max-[760px]:items-start [&_p]:m-0 [&_p]:text-center max-[760px]:[&_p]:text-left">
           <span>© 2026 Krzene. All rights reserved.</span>
-          <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+          <p>Made with ❤️ by the Krzene.</p>
           <span className="flex items-center justify-end gap-[7px] max-[760px]:justify-start"><i className="h-1.5 w-1.5 rounded-full bg-[#47c98d] shadow-[0_0_10px_rgba(71,201,141,.6)]" /> Streaming service online</span>
         </div>
       </footer>
