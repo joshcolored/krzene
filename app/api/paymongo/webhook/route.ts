@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Event could not be recorded." }, { status: 500 });
   }
 
-  let checkoutQuery = admin.from("premium_checkout_sessions").select("id,owner_id,status");
+  let checkoutQuery = admin.from("premium_checkout_sessions").select("id,owner_id,status,access_days");
   checkoutQuery = sessionId
     ? checkoutQuery.eq("paymongo_checkout_session_id", sessionId)
     : checkoutQuery.eq("reference_number", referenceNumber!);
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
   const currentEnd = current?.current_period_end ? new Date(current.current_period_end) : null;
   const startsAt = currentEnd && currentEnd > now ? currentEnd : now;
   const endsAt = new Date(startsAt);
-  endsAt.setUTCDate(endsAt.getUTCDate() + 30);
+  endsAt.setUTCDate(endsAt.getUTCDate() + checkout.access_days);
 
   const { error: premiumError } = await admin.from("premium_subscriptions").upsert({
     owner_id: checkout.owner_id,

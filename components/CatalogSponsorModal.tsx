@@ -33,7 +33,7 @@ export function CatalogSponsorModal({
   const description = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_DESCRIPTION?.trim()
     || (isDirectSponsor
       ? "Discover this offer from a Krzene sponsor."
-      : "Get 30 days of Premium for PHP 50 and remove Krzene display ads from every standard profile.");
+      : "Upgrade to Premium to remove Krzene display ads and unlock 1080p when available.");
   const ctaLabel = process.env.NEXT_PUBLIC_CATALOG_SPONSOR_CTA?.trim()
     || (isDirectSponsor ? "Visit sponsor" : "See Premium");
 

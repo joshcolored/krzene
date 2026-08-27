@@ -49,6 +49,10 @@ export type VidSrcBridgeState = {
   /** Seconds, interpolated between the player's 5-second progress reports. */
   position: number;
   duration: number;
+  /** Resolution reported by the player, for example `720p`. */
+  quality: string | null;
+  /** Resolution labels advertised by the current stream. */
+  availableQualities: string[];
   /**
    * The last mute state we asked for. The player emits no volume events, so
    * this reflects our own command rather than an observation.
@@ -67,6 +71,8 @@ export type VidSrcRemote = {
   /** Absolute position, in seconds. */
   seekTo(seconds: number): void;
   seekBy(delta: number): void;
+  /** Requests a resolution. Mirrors that do not support this command stay on Auto. */
+  setQuality(height: 480 | 720 | 1080): void;
 };
 
 const IDLE: VidSrcBridgeState = {
@@ -74,6 +80,8 @@ const IDLE: VidSrcBridgeState = {
   playing: false,
   position: 0,
   duration: 0,
+  quality: null,
+  availableQualities: [],
   muted: false,
   chromeVisible: false,
   barVisible: false,
@@ -91,6 +99,17 @@ function seconds(value: unknown): number | null {
 
 function label(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, 24) : null;
+}
+
+function qualityLabel(value: unknown): string | null {
+  if (typeof value === "string") return label(value);
+  if (!value || typeof value !== "object") return null;
+  return label((value as Record<string, unknown>).label);
+}
+
+function qualityList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(qualityLabel).filter((item): item is string => Boolean(item)))].slice(0, 12);
 }
 
 /* ------------------------------------------------------------------ *
@@ -183,6 +202,8 @@ export function useVidSrcBridge(
           const status = label(data.player_status);
           const position = seconds(data.player_progress);
           const duration = seconds(data.player_duration);
+          const quality = qualityLabel(data.quality);
+          const availableQualities = qualityList(data.availableQualities);
 
           if (position != null) anchor.current = { at: Date.now(), position };
 
@@ -199,6 +220,8 @@ export function useVidSrcBridge(
                   : current.playing,
             position: position ?? current.position,
             duration: duration && duration > 0 ? duration : current.duration,
+            quality: quality ?? current.quality,
+            availableQualities: availableQualities.length ? availableQualities : current.availableQualities,
           }));
           return;
         }
@@ -287,6 +310,12 @@ export function useVidSrcBridge(
         );
         mark(next);
         setState((current) => ({ ...current, position: next }));
+      },
+      setQuality(height) {
+        // The relay forwards this request to compatible mirrors. The current
+        // VidSrc player still reports the real selected level, so the UI never
+        // claims a resolution changed unless PLAYER_EVENT confirms it.
+        send({ player: true, action: `quality${height}`, quality: height });
       },
     };
   }, [send]);

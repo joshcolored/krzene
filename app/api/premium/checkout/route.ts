@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const PREMIUM_PRICE_CENTAVOS = 5000;
-
 export async function POST(request: Request) {
   const supabase = await createClient();
   const admin = createAdminClient();
@@ -26,6 +24,17 @@ export async function POST(request: Request) {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in before purchasing Premium." }, { status: 401 });
+
+  const { data: plan, error: planError } = await admin
+    .from("premium_plans")
+    .select("id,name,price_centavos,currency,access_days")
+    .eq("id", "standard")
+    .eq("active", true)
+    .maybeSingle();
+  if (planError || !plan) {
+    console.error("Premium checkout could not load the active database plan", planError?.code);
+    return NextResponse.json({ error: "Premium plan is unavailable. Apply the latest Supabase migration." }, { status: 503 });
+  }
 
   const configuredUrl = process.env.APP_URL?.trim();
   const appUrl = (configuredUrl || new URL(request.url).origin).replace(/\/$/, "");
@@ -48,15 +57,15 @@ export async function POST(request: Request) {
         attributes: {
           billing: user.email ? { email: user.email, name: user.user_metadata?.full_name || user.email } : undefined,
           cancel_url: `${appUrl}/?premium=cancelled`,
-          description: "30 days of Krzene Premium with an ad-free catalog experience.",
+          description: `${plan.access_days} days of ${plan.name} with an ad-free catalog experience and 1080p access where available.`,
           line_items: [{
-            amount: PREMIUM_PRICE_CENTAVOS,
-            currency: "PHP",
-            description: "Ad-free access for 30 days",
-            name: "Krzene Premium",
+            amount: plan.price_centavos,
+            currency: plan.currency,
+            description: `Ad-free access for ${plan.access_days} days`,
+            name: plan.name,
             quantity: 1,
           }],
-          metadata: { owner_id: user.id, access_days: "30" },
+          metadata: { owner_id: user.id, plan_id: plan.id, access_days: String(plan.access_days) },
           payment_method_types: paymentMethods,
           reference_number: referenceNumber,
           send_email_receipt: true,
@@ -85,7 +94,10 @@ export async function POST(request: Request) {
     owner_id: user.id,
     paymongo_checkout_session_id: sessionId,
     reference_number: referenceNumber,
-    amount: PREMIUM_PRICE_CENTAVOS,
+    plan_id: plan.id,
+    amount: plan.price_centavos,
+    currency: plan.currency,
+    access_days: plan.access_days,
   });
 
   if (error) {

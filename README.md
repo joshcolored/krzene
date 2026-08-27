@@ -13,7 +13,7 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - Separate Supabase-backed library for every profile
 - Signed-in-only libraries, hidden from guests
 - Row Level Security protecting profile and library data
-- ₱50 Premium access with server-verified PayMongo checkout
+- database-priced Premium access with server-verified PayMongo checkout
 - Privacy-aware manual AdSense placements (disabled for Kids and Premium)
 - Vercel-ready OAuth callback and session middleware
 
@@ -168,7 +168,7 @@ Signed-out visitors can still save titles locally. Signed-in profile libraries a
 
 ## Premium and PayMongo setup
 
-Krzene currently sells **30 days of Premium for ₱50** as a one-time PayMongo Hosted Checkout. It does not silently auto-renew. A customer can renew early; every successful payment adds another 30 days after the account's current expiry.
+Krzene sells Premium as a one-time PayMongo Hosted Checkout. Its price and access duration come from the active `premium_plans` row in Supabase, so they can change without a redeploy. It does not silently auto-renew. A customer can renew early; every successful payment adds the plan's current access period after the account's current expiry.
 
 ### 1. Prepare PayMongo
 
@@ -222,7 +222,7 @@ Get the service-role key from **Supabase → Project Settings → API Keys**. It
 2. Deploy the environment variables.
 3. Sign in, open **Go Premium**, and complete a PayMongo test checkout.
 4. In PayMongo, confirm the webhook received a `2xx` response.
-5. In Supabase, confirm the checkout is `paid` and `premium_subscriptions.current_period_end` is about 30 days ahead.
+5. In Supabase, confirm the checkout is `paid` and `premium_subscriptions.current_period_end` advanced by the purchased plan's `access_days` value.
 6. Refresh the catalog and confirm the Premium badge appears and both ad units disappear.
 7. Repeat the same event from PayMongo's delivery tools and confirm the expiry is **not** extended twice.
 
@@ -230,7 +230,7 @@ When ready, replace `sk_test_...` with the live key and register a separate live
 
 ### Optional true monthly auto-renewal
 
-PayMongo has a Subscriptions API, but PayMongo must enable it for the merchant account. Scheduled subscriptions currently support cards and Maya and require a reusable Plan, Customer, and initial payment flow. Contact PayMongo support to enable Subscriptions before changing this implementation. Until then, the UI intentionally says **₱50 for 30 days** and **does not auto-renew**.
+PayMongo has a Subscriptions API, but PayMongo must enable it for the merchant account. Scheduled subscriptions require a reusable Plan, Customer, and initial payment flow. Contact PayMongo support before changing this implementation. Until then, the UI intentionally presents the database-configured one-time price and access period and **does not auto-renew**.
 
 ## AdSense setup
 

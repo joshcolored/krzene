@@ -226,6 +226,18 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
         </>
       )}
 
+      {/* Mobile players draw their own large pause/skip glyphs in the video
+          surface. Cross-origin iframe CSS cannot remove those glyphs, so a
+          touch-only paused surface keeps them permanently out of view while
+          preserving Krzene's controls above it. */}
+      {connected && !playback.playing && (
+        <div className="pointer-events-none absolute inset-0 z-[12] hidden items-center justify-center bg-black [@media(pointer:coarse)]:flex" aria-hidden="true">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-white/8 text-white shadow-2xl backdrop-blur-xl [&_svg]:h-7 [&_svg]:w-7">
+            <Glyph name="play" />
+          </span>
+        </div>
+      )}
+
       <div
         className={[
         "absolute inset-x-0 bottom-0 z-20 bg-[linear-gradient(transparent,rgba(0,0,0,.9)_40%,#000)] px-3 pt-12 pb-2 transition-opacity duration-200 max-[520px]:px-1.5 max-[520px]:pt-8",

@@ -11,6 +11,24 @@ import { ProfileChooser } from "./ProfileChooser";
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
 type NavItem = (typeof NAV_ITEMS)[number];
 
+type PremiumPlan = {
+  id: string;
+  name: string;
+  priceCentavos: number;
+  currency: string;
+  accessDays: number;
+};
+
+function formatPremiumPrice(plan: PremiumPlan): string {
+  const amount = plan.priceCentavos / 100;
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: plan.currency,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 type IconName = "home" | "movie" | "shows" | "anime" | "library" | "search" | "menu" | "chevron-left" | "chevron-right" | "play" | "check" | "plus";
 
 const NAV_ICONS: Record<NavItem, IconName> = {
@@ -200,6 +218,8 @@ function CatalogHome({
   const [showPremium, setShowPremium] = useState(false);
   const [purchasingPremium, setPurchasingPremium] = useState(false);
   const [premiumMessage, setPremiumMessage] = useState<string | null>(null);
+  const [premiumPlan, setPremiumPlan] = useState<PremiumPlan | null>(null);
+  const [premiumPlanLoading, setPremiumPlanLoading] = useState(false);
   const searchToken = useRef(0);
   const {
     ready: authReady,
@@ -219,6 +239,19 @@ function CatalogHome({
     if (authReady && user && !activeProfile) setShowProfiles(true);
     if (user) setShowSignIn(false);
   }, [activeProfile, authReady, user]);
+
+  useEffect(() => {
+    if (!showPremium || premiumPlan || premiumPlanLoading) return;
+    setPremiumPlanLoading(true);
+    void fetch("/api/premium/plan", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { plan?: PremiumPlan; error?: string };
+        if (!response.ok || !payload.plan) throw new Error(payload.error || "Premium plan could not be loaded.");
+        setPremiumPlan(payload.plan);
+      })
+      .catch((error) => setPremiumMessage(error instanceof Error ? error.message : "Premium plan could not be loaded."))
+      .finally(() => setPremiumPlanLoading(false));
+  }, [premiumPlan, premiumPlanLoading, showPremium]);
 
   const kidsMode = activeProfile?.isKids === true;
   const visibleSavedItems = useMemo(
@@ -291,7 +324,9 @@ function CatalogHome({
     setShowPremium(true);
     setPremiumMessage(result === "success"
       ? "Payment completed. We are confirming it securely with PayMongo."
-      : "Checkout was cancelled. You have not been charged.");
+      : result === "cancelled"
+        ? "Checkout was cancelled. You have not been charged."
+        : null);
     window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
     if (result !== "success") return;
     void refreshPremium();
@@ -378,6 +413,7 @@ function CatalogHome({
   const topTen = catalogRails.find((rail) => rail.id === (kidsMode ? "kids-trending" : "trending"))?.items.slice(0, 10) ?? [];
   const heroArt = activeHero.backdrop ?? activeHero.poster;
   const trimmedQuery = query.trim();
+  const searchMode = showSearch || Boolean(trimmedQuery);
   const adsEnabled = active === "Home" && !kidsMode && !isPremium;
 
   return (
@@ -571,28 +607,29 @@ function CatalogHome({
             </button>
             <span className="inline-flex rounded-full border border-[#e7b64d]/30 bg-[#e7b64d]/10 px-3 py-1 text-[10px] font-extrabold tracking-[.14em] text-[#f1cc78] uppercase">Krzene Premium</span>
             <h2 id="premium-title" className="mt-5 font-display text-[32px] leading-tight font-extrabold tracking-[-.04em]">{isPremium ? "Your catalog is ad-free" : "Watch with fewer interruptions"}</h2>
-            <p className="mt-3 text-sm leading-relaxed text-[#9b968f]">Premium removes Krzene&apos;s catalog ads from every standard profile on your account. Kids profiles never show ads.</p>
+            <p className="mt-3 text-sm leading-relaxed text-[#9b968f]">Premium removes Krzene&apos;s catalog ads from every standard profile on your account and unlocks 1080p where the stream provides it. Kids profiles never show ads.</p>
             <div className="my-6 flex items-end gap-2 border-y border-white/8 py-5">
-              <strong className="font-display text-[42px] leading-none">₱50</strong>
-              <span className="pb-1 text-sm text-[#8e8982]">for 30 days</span>
+              <strong className="font-display text-[42px] leading-none">{premiumPlan ? formatPremiumPrice(premiumPlan) : "—"}</strong>
+              <span className="pb-1 text-sm text-[#8e8982]">{premiumPlan ? `for ${premiumPlan.accessDays} days` : premiumPlanLoading ? "loading plan…" : "plan unavailable"}</span>
             </div>
             <ul className="space-y-3 text-sm text-[#d1cdc7]">
               <li className="flex gap-3"><span className="text-[#47c98d]">✓</span><span>No Krzene display ads on the catalog</span></li>
               <li className="flex gap-3"><span className="text-[#47c98d]">✓</span><span>Applies to every non-Kids profile on your account</span></li>
+              <li className="flex gap-3"><span className="text-[#47c98d]">✓</span><span>1080p playback when the selected stream offers it</span></li>
               <li className="flex gap-3"><span className="text-[#47c98d]">✓</span><span>Secure hosted checkout powered by PayMongo</span></li>
             </ul>
-            {isPremium && premiumUntil && <p className="mt-5 rounded-xl border border-[#47c98d]/20 bg-[#47c98d]/8 px-4 py-3 text-xs text-[#83ddb3]">Active until {new Intl.DateTimeFormat("en-PH", { dateStyle: "long" }).format(new Date(premiumUntil))}. Another payment adds 30 more days.</p>}
+            {isPremium && premiumUntil && <p className="mt-5 rounded-xl border border-[#47c98d]/20 bg-[#47c98d]/8 px-4 py-3 text-xs text-[#83ddb3]">Active until {new Intl.DateTimeFormat("en-PH", { dateStyle: "long" }).format(new Date(premiumUntil))}.{premiumPlan ? ` Another payment adds ${premiumPlan.accessDays} more days.` : ""}</p>}
             {premiumMessage && <p className={`mt-5 rounded-xl border px-4 py-3 text-xs leading-relaxed ${isPremium ? "border-[#47c98d]/20 bg-[#47c98d]/8 text-[#83ddb3]" : "border-white/9 bg-white/5 text-[#bbb6af]"}`}>{isPremium ? "Premium is active. Ads are now off." : premiumMessage}</p>}
-            <button type="button" className="mt-7 flex min-h-[54px] w-full cursor-pointer items-center justify-center gap-2.5 rounded-xl border-0 bg-[#f5f3ef] px-5 font-extrabold text-[#101010] transition hover:bg-white active:scale-[.985] disabled:cursor-wait disabled:opacity-70" onClick={() => void beginPremiumCheckout()} disabled={purchasingPremium}>
+            <button type="button" className="mt-7 flex min-h-[54px] w-full cursor-pointer items-center justify-center gap-2.5 rounded-xl border-0 bg-[#f5f3ef] px-5 font-extrabold text-[#101010] transition hover:bg-white active:scale-[.985] disabled:cursor-wait disabled:opacity-70" onClick={() => void beginPremiumCheckout()} disabled={purchasingPremium || Boolean(user && (!premiumPlan || premiumPlanLoading))}>
               {purchasingPremium && <span className="h-5 w-5 animate-spin rounded-full border-2 border-black/20 border-t-black" aria-hidden="true" />}
-              <span>{purchasingPremium ? "Opening PayMongo…" : isPremium ? "Add another 30 days" : user ? "Continue to PayMongo" : "Sign in to continue"}</span>
+              <span>{purchasingPremium ? "Opening PayMongo…" : isPremium && premiumPlan ? `Add another ${premiumPlan.accessDays} days` : user ? premiumPlanLoading ? "Loading plan…" : "Continue to PayMongo" : "Sign in to continue"}</span>
             </button>
-            <p className="mt-4 text-center text-[10px] leading-relaxed text-[#625f5a]">This checkout is a one-time ₱50 payment for 30 days and does not auto-renew.</p>
+            <p className="mt-4 text-center text-[10px] leading-relaxed text-[#625f5a]">{premiumPlan ? `This is a one-time ${formatPremiumPrice(premiumPlan)} payment for ${premiumPlan.accessDays} days and does not auto-renew.` : "Price and access duration are loaded securely from the active Supabase plan."}</p>
           </section>
         </div>
       )}
 
-      <section
+      {!searchMode && <section
         className="relative flex min-h-[780px] items-start overflow-hidden bg-[#090909] bg-cover bg-[position:63%_45%] max-[760px]:min-h-[720px] max-[760px]:bg-[position:62%_center]"
         style={
           {
@@ -656,9 +693,9 @@ function CatalogHome({
             </div>
           )}
         </div>
-      </section>
+      </section>}
 
-      <div className="relative z-[4] -mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] px-[max(64px,calc((100vw_-_1310px)/2))] pt-[90px] pb-[100px] max-[760px]:-mt-[140px] max-[760px]:px-5 max-[760px]:pt-[82px] max-[760px]:pb-[120px]">
+      <div className={`relative z-[4] px-[max(64px,calc((100vw_-_1310px)/2))] pb-[100px] max-[760px]:px-5 max-[760px]:pb-[120px] ${searchMode ? "min-h-screen bg-[#090909] pt-[170px] max-[760px]:pt-[150px]" : "-mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] pt-[90px] max-[760px]:-mt-[140px] max-[760px]:pt-[82px]"}`}>
         <div className="mb-[34px] rounded-xl border border-white/7 bg-black/25 px-4 py-3 text-[11px] tracking-[.02em] text-[#77736e] shadow-[0_12px_34px_rgba(0,0,0,.2)] backdrop-blur-xl max-[760px]:mb-[26px] [&_b]:text-[#d2cec8]">
           {kidsMode && <b className="mr-2 rounded-full bg-[#d9edf5] px-2 py-1 text-[#16242a]">KIDS</b>}
           <b>{totalTitles.toLocaleString()}</b> {kidsMode ? "kid-friendly titles" : "Movies and Series loaded"}

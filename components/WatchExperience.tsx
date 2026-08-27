@@ -25,7 +25,7 @@ const SUBTITLE_LANGUAGES = [
   { code: "ar", label: "Arabic" },
 ];
 
-type WatchMenu = "servers" | "episodes" | "subtitles";
+type WatchMenu = "servers" | "episodes" | "subtitles" | "quality";
 
 const TOOL_BUTTON =
   "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/12 bg-[#171717] px-3.5 text-xs font-bold text-[#d8d4ce] transition hover:border-white/25 hover:bg-[#232323] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5ad12]";
@@ -43,8 +43,9 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
   const [episode, setEpisode] = useState(Number.isInteger(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : 1);
   const [subtitle, setSubtitle] = useState("en");
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
+  const [qualityNotice, setQualityNotice] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const { ready: authReady, user, activeProfile, library, toggleLibrary, saveWatchProgress } = useAuth();
+  const { ready: authReady, user, activeProfile, library, isPremium, toggleLibrary, saveWatchProgress } = useAuth();
   const saved = library.some((item) => item.key === detail.key);
 
   const isSeries = detail.kind === "tv";
@@ -232,6 +233,17 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
               </button>
               <button
                 type="button"
+                className={`${TOOL_BUTTON} ${openMenu === "quality" ? "border-white/30 bg-white/12 text-white" : ""}`}
+                onClick={() => {
+                  setQualityNotice(null);
+                  toggleMenu("quality");
+                }}
+                aria-expanded={openMenu === "quality"}
+              >
+                Quality <span className="text-[#8f8a83]">{playback.quality ?? "Auto"}</span>
+              </button>
+              <button
+                type="button"
                 className={`${TOOL_BUTTON} ${openMenu === "servers" ? "border-white/30 bg-white/12 text-white" : ""}`}
                 onClick={() => toggleMenu("servers")}
                 aria-expanded={openMenu === "servers"}
@@ -291,6 +303,54 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
                       {subtitle === language.code && <span className="ml-auto text-[#f5ad12]">✓</span>}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {openMenu === "quality" && (
+                <div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([480, 720, 1080] as const).map((height) => {
+                      const resolution = `${height}p`;
+                      const locked = height === 1080 && !isPremium;
+                      const available = !playback.connected || playback.availableQualities.length === 0
+                        || playback.availableQualities.some((item) => parseInt(item, 10) === height);
+                      const active = playback.quality != null && parseInt(playback.quality, 10) === height;
+
+                      if (locked) {
+                        return (
+                          <Link
+                            key={height}
+                            href="/?premium=upgrade"
+                            className="flex min-h-16 flex-col items-center justify-center rounded-lg border border-[#e7b64d]/25 bg-[#e7b64d]/8 px-3 text-center text-xs font-bold text-[#f1cc78] transition hover:bg-[#e7b64d]/14"
+                          >
+                            <span>{resolution}</span>
+                            <small className="mt-1 text-[9px] tracking-wider uppercase">Premium</small>
+                          </Link>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={height}
+                          type="button"
+                          disabled={!available}
+                          className={`min-h-16 rounded-lg border px-3 text-xs font-bold transition ${active ? "border-[#f2f0ec] bg-[#f2f0ec] text-[#111]" : "border-white/8 bg-[#20201f] text-[#d0cbc4] hover:bg-[#2b2a29] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"}`}
+                          onClick={() => {
+                            remote.setQuality(height);
+                            setQualityNotice(`Requested ${resolution}. The active server will confirm the change above when supported.`);
+                          }}
+                        >
+                          {resolution}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-[11px] leading-relaxed text-[#817c75]" role="status">
+                    {qualityNotice
+                      ?? (playback.connected
+                        ? `Available from this stream: ${playback.availableQualities.join(", ") || "Auto only"}.`
+                        : "Start playback to detect the resolutions available from this server.")}
+                  </p>
                 </div>
               )}
 
@@ -354,7 +414,7 @@ export function WatchExperience({ detail, notice }: { detail: MediaDetail; notic
           <div className="mt-7 border-t border-white/9 pt-[22px]">
             <b className="text-[13px]">Source</b>
             <p className="text-xs leading-relaxed text-[#77736e]">
-              {sourcePath} on {new URL(mirror.host).host}. Use the buttons below the player to change servers, subtitles, or episodes.
+              {sourcePath} on {new URL(mirror.host).host}. Use the buttons below the player to change servers, subtitles, quality, or episodes.
             </p>
           </div>
           <div className="mt-5 border-t border-white/9 pt-[22px]">
