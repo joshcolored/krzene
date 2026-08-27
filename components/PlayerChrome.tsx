@@ -216,7 +216,7 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
       {connected && (
         <>
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[4%] min-h-14 bg-[linear-gradient(#000_8%,rgba(0,0,0,.94)_48%,transparent)] max-[520px]:h-[22%]"
+            className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[4%] min-h-18 bg-[linear-gradient(transparent,rgba(0,0,0,.94)_2%,#000_12%)] max-[520px]:h-[22%]"
             aria-hidden="true"
           />
           <div
