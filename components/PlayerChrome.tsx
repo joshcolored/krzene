@@ -182,7 +182,14 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
       onPointerDown={wake}
       aria-label={title + " player"}
     >
-      <div className={connected ? "absolute inset-0 [&_iframe]:pointer-events-none" : "absolute inset-0"}>{children}</div>
+      <div
+        className={connected
+          ? "absolute inset-0 [&_iframe]:pointer-events-none [&_iframe]:select-none"
+          : "absolute inset-0"}
+        data-provider-controls={connected ? "sealed" : "waiting"}
+      >
+        {children}
+      </div>
 
       {connected && (
         <div
@@ -200,8 +207,24 @@ export function PlayerChrome({ children, playback, remote, title }: Props) {
         />
       )}
 
-      {connected && (playback.barVisible || playback.chromeVisible) && <div className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[15%] bg-[linear-gradient(#000_15%,rgba(0,0,0,.88)_62%,transparent)]" aria-hidden="true" />}
-      {connected && playback.chromeVisible && <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[11] h-[22%] bg-[linear-gradient(transparent,rgba(0,0,0,.92)_48%,#000)]" aria-hidden="true" />}
+      {/*
+        VidSrc's PLAYER_UI visibility event is only advisory and is frequently
+        missing on mobile mirrors. Once PLAYER_EVENT connects the bridge, seal
+        both provider chrome regions permanently. The custom controls remain
+        above these masks at z-20.
+      */}
+      {connected && (
+        <>
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-[18%] min-h-14 bg-[linear-gradient(#000_8%,rgba(0,0,0,.94)_48%,transparent)] max-[520px]:h-[22%]"
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[11] h-[30%] min-h-24 bg-[linear-gradient(transparent,rgba(0,0,0,.94)_52%,#000_82%)] max-[520px]:h-[36%]"
+            aria-hidden="true"
+          />
+        </>
+      )}
 
       <div
         className={[
