@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isKidsMedia, watchHref, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
 import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/vidsrc";
 import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
@@ -50,9 +50,16 @@ export function WatchExperience({
   const [episode, setEpisode] = useState(Number.isInteger(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : 1);
   const [subtitle, setSubtitle] = useState("en");
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
+  const [sourceNotice, setSourceNotice] = useState("");
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const mirrorRef = useRef(mirror);
+  const attemptedSourcesRef = useRef(new Set<string>());
+  const loadTimeoutRef = useRef<number | null>(null);
+  const noticeTimeoutRef = useRef<number | null>(null);
   const { ready: authReady, user, activeProfile, library, toggleLibrary, saveWatchProgress } = useAuth();
   const saved = library.some((item) => item.key === detail.key);
+
+  mirrorRef.current = mirror;
 
   const isSeries = detail.kind === "tv";
   const seasons = detail.seasons;
@@ -75,6 +82,77 @@ export function WatchExperience({
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
   const progressBucket = Math.floor(playback.position / 10);
+
+  const clearLoadTimeout = useCallback(() => {
+    if (loadTimeoutRef.current == null) return;
+    window.clearTimeout(loadTimeoutRef.current);
+    loadTimeoutRef.current = null;
+  }, []);
+
+  const tryNextSource = useCallback((failedSourceId?: string) => {
+    const current = mirrorRef.current;
+    attemptedSourcesRef.current.add(failedSourceId ?? current.id);
+    const currentIndex = PLAYBACK_SOURCES.findIndex((source) => source.id === current.id);
+    const next = PLAYBACK_SOURCES.slice(currentIndex + 1).find(
+      (source) => !attemptedSourcesRef.current.has(source.id),
+    );
+
+    clearLoadTimeout();
+    if (!next) {
+      setSourceNotice("No other playback source is available.");
+      return;
+    }
+
+    setOpenMenu(null);
+    setSourceNotice("Trying other sources...");
+    setMirror(next);
+  }, [clearLoadTimeout]);
+
+  useEffect(() => {
+    attemptedSourcesRef.current.clear();
+    setSourceNotice("");
+    setMirror(PLAYBACK_SOURCES[0]);
+  }, [detail.key, episode, season]);
+
+  useEffect(() => {
+    clearLoadTimeout();
+    loadTimeoutRef.current = window.setTimeout(() => {
+      tryNextSource(mirrorRef.current.id);
+    }, 20_000);
+    return clearLoadTimeout;
+  }, [clearLoadTimeout, sourceUrl, tryNextSource]);
+
+  useEffect(() => {
+    const onProviderMessage = (event: MessageEvent) => {
+      const frame = frameRef.current;
+      if (!frame?.contentWindow || event.source !== frame.contentWindow) return;
+
+      let text = "";
+      try {
+        text = typeof event.data === "string" ? event.data : JSON.stringify(event.data);
+      } catch {
+        return;
+      }
+
+      if (!/(no (?:media|video|stream|source)|not found|unavailable|cannot be played|can't be played|playback error|error[_ -]loading|file not found)/i.test(text)) return;
+      tryNextSource(mirrorRef.current.id);
+    };
+
+    window.addEventListener("message", onProviderMessage);
+    return () => window.removeEventListener("message", onProviderMessage);
+  }, [tryNextSource]);
+
+  useEffect(() => () => {
+    clearLoadTimeout();
+    if (noticeTimeoutRef.current != null) window.clearTimeout(noticeTimeoutRef.current);
+  }, [clearLoadTimeout]);
+
+  const handleFrameLoad = () => {
+    clearLoadTimeout();
+    if (!sourceNotice) return;
+    if (noticeTimeoutRef.current != null) window.clearTimeout(noticeTimeoutRef.current);
+    noticeTimeoutRef.current = window.setTimeout(() => setSourceNotice(""), 3000);
+  };
 
   useEffect(() => {
     if (resumeSent.current || !playback.connected || !Number.isFinite(resumeAt) || resumeAt < 5) return;
@@ -215,7 +293,16 @@ export function WatchExperience({
             allowFullScreen
             referrerPolicy="origin"
             tabIndex={-1}
+            onLoad={handleFrameLoad}
+            onError={() => tryNextSource(mirror.id)}
           />
+          {sourceNotice && (
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3" role="status" aria-live="polite">
+              <span className="rounded-full border border-white/15 bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl backdrop-blur-md">
+                {sourceNotice}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="relative border-b border-white/10 py-3">
@@ -316,6 +403,8 @@ export function WatchExperience({
                       type="button"
                       className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-left transition ${mirror.id === item.id ? "bg-white/13 text-white" : "text-[#aaa59e] hover:bg-white/8 hover:text-white"}`}
                       onClick={() => {
+                        attemptedSourcesRef.current.clear();
+                        setSourceNotice("");
                         setMirror(item);
                         setOpenMenu(null);
                       }}

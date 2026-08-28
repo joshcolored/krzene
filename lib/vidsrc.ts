@@ -44,9 +44,9 @@ export const VIDSRC_MIRRORS: VidSrcMirror[] = [
 ];
 
 export const PLAYBACK_SOURCES: PlaybackSource[] = [
-  ...VIDSRC_MIRRORS,
   { id: "cinesrc", name: "CineSrc", region: "Global", host: "https://cinesrc.st", provider: "cinesrc" },
   { id: "multiembed", name: "MultiEmbed", region: "Global", host: "https://multiembed.mov", provider: "multiembed" },
+  ...VIDSRC_MIRRORS,
 ];
 
 export const DEFAULT_MIRROR = PLAYBACK_SOURCES[0];
