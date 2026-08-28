@@ -349,7 +349,7 @@ class _WatchScreenState extends State<WatchScreen> {
   }
 
   Future<void> _closeAdAndReturnToVideo() async {
-    if (mounted) setState(() => notice = 'Returning to video...');
+    if (mounted) setState(() => notice = 'Closing ad...');
     try {
       final current = Uri.tryParse(await web.currentUrl() ?? '');
       final expected = Uri.parse(_embedUrl());
@@ -361,8 +361,6 @@ class _WatchScreenState extends State<WatchScreen> {
 
       if (!onEmbedPage && canGoBack) {
         await web.goBack();
-      } else if (!onEmbedPage) {
-        await web.loadRequest(expected);
       } else {
         await web.runJavaScript(r'''
           (() => {
@@ -380,7 +378,7 @@ class _WatchScreenState extends State<WatchScreen> {
         ''');
       }
     } catch (_) {
-      await web.loadRequest(Uri.parse(_embedUrl()));
+      // Closing an ad must never reload or replace the selected provider.
     }
     if (mounted) {
       Future.delayed(const Duration(milliseconds: 900), () {
@@ -441,7 +439,7 @@ class _WatchScreenState extends State<WatchScreen> {
                     top: 10,
                     right: 10,
                     child: _PlayerOverlayButton(
-                      tooltip: 'Close ad and return to video',
+                      tooltip: 'Close ad',
                       icon: Icons.close_rounded,
                       onPressed: () => unawaited(_closeAdAndReturnToVideo()),
                     ),
@@ -748,7 +746,7 @@ class _WatchScreenState extends State<WatchScreen> {
                         ),
                         const SizedBox(width: 9),
                         _PlayerOverlayButton(
-                          tooltip: 'Close ad and return to video',
+                          tooltip: 'Close ad',
                           icon: Icons.close_rounded,
                           onPressed: () =>
                               unawaited(_closeAdAndReturnToVideo()),
