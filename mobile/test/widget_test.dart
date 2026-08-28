@@ -27,9 +27,45 @@ class _SignedInAccount extends AccountRepository {
   );
 }
 
+class _EditableAccount extends _SignedInAccount {
+  var nextId = 1;
+  final deletedProfileIds = <String>[];
+
+  @override
+  Future<ViewerProfile> createProfile(String name, {bool kids = false}) async =>
+      ViewerProfile(id: '${nextId++}', name: name, isKids: kids);
+
+  @override
+  Future<ViewerProfile> updateProfileName(
+    ViewerProfile profile,
+    String name,
+  ) async => ViewerProfile(
+    id: profile.id,
+    name: name,
+    isKids: profile.isKids,
+    avatarUrl: profile.avatarUrl,
+    avatarColor: profile.avatarColor,
+  );
+
+  @override
+  Future<void> deleteProfile(String profileId) async {
+    deletedProfileIds.add(profileId);
+  }
+
+  @override
+  Future<List<Media>> library(String profileId) async => [];
+
+  @override
+  Future<List<ContinueItem>> continueWatching(String profileId) async => [];
+}
+
 void main() {
   test('production API is the safe default for every device', () {
     expect(AppConfig.apiBaseUrl, 'https://krzene.site');
+  });
+
+  test('account access is safe before Supabase finishes initializing', () {
+    expect(AccountRepository().user, isNull);
   });
 
   testWidgets('Krzene app starts', (WidgetTester tester) async {
@@ -74,10 +110,72 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -700));
     await tester.pumpAndSettle();
     expect(find.text('Language & region'), findsOneWidget);
+    expect(find.text('Manage profiles'), findsOneWidget);
     expect(find.text('Help & support'), findsOneWidget);
     expect(find.text('Privacy policy'), findsOneWidget);
     expect(find.text('Terms of use'), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
+  });
+
+  testWidgets('create profile sheet closes without framework assertions', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = KrzeneController(account: _EditableAccount());
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: Scaffold(body: KrzeneAccountPage(controller: controller)),
+      ),
+    );
+
+    await tester.drag(find.byType(ListView), const Offset(0, -320));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add profile'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Family');
+    await tester.pump();
+    await tester.tap(find.text('Create profile'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(controller.profiles.single.name, 'Family');
+  });
+
+  testWidgets('manage profiles confirms permanent swipe deletion', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = _EditableAccount();
+    final controller = KrzeneController(account: account)
+      ..profiles = const [
+        ViewerProfile(id: 'profile-1', name: 'Family', isKids: false),
+      ];
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: Scaffold(body: KrzeneAccountPage(controller: controller)),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Manage profiles'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Manage profiles'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.text('Family').first, const Offset(-360, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete Family?'), findsOneWidget);
+    expect(find.textContaining('This permanently deletes'), findsOneWidget);
+    await tester.tap(find.text('Delete profile'));
+    await tester.pumpAndSettle();
+
+    expect(account.deletedProfileIds, ['profile-1']);
+    expect(controller.profiles, isEmpty);
   });
 
   testWidgets('search is populated with catalog recommendations', (

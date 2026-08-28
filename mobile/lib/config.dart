@@ -1,4 +1,7 @@
 class AppConfig {
+  static bool supabaseReady = false;
+  static Object? supabaseInitializationError;
+
   static const _configuredApiBaseUrl = String.fromEnvironment(
     'KRZENE_API_BASE_URL',
   );
@@ -17,4 +20,14 @@ class AppConfig {
 
   static bool get hasSupabase =>
       supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty;
+
+  static void markSupabaseReady() {
+    supabaseReady = true;
+    supabaseInitializationError = null;
+  }
+
+  static void markSupabaseFailed(Object error) {
+    supabaseReady = false;
+    supabaseInitializationError = error;
+  }
 }

@@ -846,7 +846,7 @@ class _SearchPageState extends State<SearchPage> {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
-        MediaQuery.paddingOf(context).top + 76,
+        MediaQuery.paddingOf(context).top + 12,
         16,
         16,
       ),
@@ -952,7 +952,7 @@ class LibraryPage extends StatelessWidget {
     }
     return ListView(
       padding: EdgeInsets.only(
-        top: MediaQuery.paddingOf(context).top + 76,
+        top: MediaQuery.paddingOf(context).top + 12,
         bottom: 112,
       ),
       children: [
@@ -1170,12 +1170,12 @@ class KrzeneAccountPage extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.fromLTRB(
         20,
-        MediaQuery.paddingOf(context).top + 76,
+        MediaQuery.paddingOf(context).top + 12,
         20,
         MediaQuery.paddingOf(context).bottom + 164,
       ),
       children: [
-        Text('My profile', style: Theme.of(context).textTheme.headlineLarge),
+        Text('MY PROFILE', style: Theme.of(context).textTheme.headlineLarge),
         const SizedBox(height: 22),
         Container(
           padding: const EdgeInsets.all(20),
@@ -1286,6 +1286,15 @@ class KrzeneAccountPage extends StatelessWidget {
               title: 'Language & region',
               subtitle: _languages[controller.language] ?? controller.language,
               onTap: () => _showLanguageSheet(context, controller),
+            ),
+            _SettingsTile(
+              icon: Icons.manage_accounts_rounded,
+              title: 'Manage profiles',
+              subtitle: 'Edit profile names and account profiles',
+              onTap: () => _openAccountPage(
+                context,
+                _ManageProfilesScreen(controller: controller),
+              ),
             ),
           ],
         ),
@@ -1610,6 +1619,354 @@ class _AccountSubpage extends StatelessWidget {
   );
 }
 
+class _ManageProfilesScreen extends StatelessWidget {
+  const _ManageProfilesScreen({required this.controller});
+
+  final KrzeneController controller;
+
+  @override
+  Widget build(BuildContext context) => _AccountSubpage(
+    title: 'Manage profiles',
+    child: AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Viewer profiles',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 7),
+          const Text(
+            'Edit the names used for libraries and Continue Watching.',
+            style: TextStyle(color: krzeneMuted, height: 1.5),
+          ),
+          const SizedBox(height: 22),
+          if (controller.profiles.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: krzenePanelRaised,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: const Text(
+                'No viewer profiles yet.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: krzeneMuted),
+              ),
+            )
+          else
+            Container(
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: krzenePanelRaised,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Column(
+                children: [
+                  for (
+                    var index = 0;
+                    index < controller.profiles.length;
+                    index++
+                  ) ...[
+                    _SwipeManagedProfileTile(
+                      profile: controller.profiles[index],
+                      active:
+                          controller.activeProfile?.id ==
+                          controller.profiles[index].id,
+                      onEdit: () => _editProfileName(
+                        context,
+                        controller,
+                        controller.profiles[index],
+                      ),
+                      onDelete: () => _confirmDeleteProfile(
+                        context,
+                        controller,
+                        controller.profiles[index],
+                      ),
+                    ),
+                    if (index != controller.profiles.length - 1)
+                      const Divider(height: 1, indent: 76),
+                  ],
+                ],
+              ),
+            ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _createProfileSheet(context, controller),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add profile'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SwipeManagedProfileTile extends StatelessWidget {
+  const _SwipeManagedProfileTile({
+    required this.profile,
+    required this.active,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ViewerProfile profile;
+  final bool active;
+  final VoidCallback onEdit;
+  final Future<bool> Function() onDelete;
+
+  @override
+  Widget build(BuildContext context) => Dismissible(
+    key: ValueKey('managed-profile-${profile.id}'),
+    direction: DismissDirection.endToStart,
+    confirmDismiss: (_) => onDelete(),
+    background: Container(
+      color: const Color(0xff721821),
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.symmetric(horizontal: 22),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Delete',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          SizedBox(width: 9),
+          Icon(Icons.delete_forever_rounded, color: Colors.white),
+        ],
+      ),
+    ),
+    child: _ManagedProfileTile(
+      profile: profile,
+      active: active,
+      onEdit: onEdit,
+    ),
+  );
+}
+
+class _ManagedProfileTile extends StatelessWidget {
+  const _ManagedProfileTile({
+    required this.profile,
+    required this.active,
+    required this.onEdit,
+  });
+
+  final ViewerProfile profile;
+  final bool active;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    minTileHeight: 78,
+    contentPadding: const EdgeInsets.fromLTRB(15, 5, 10, 5),
+    leading: CircleAvatar(
+      radius: 25,
+      backgroundColor: krzeneRed,
+      backgroundImage: profile.avatarUrl == null
+          ? null
+          : NetworkImage(profile.avatarUrl!),
+      child: profile.avatarUrl == null
+          ? Text(
+              profile.name.characters.first.toUpperCase(),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            )
+          : null,
+    ),
+    title: Text(
+      profile.name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontWeight: FontWeight.w800),
+    ),
+    subtitle: Text(
+      [if (active) 'CURRENT', if (profile.isKids) 'KIDS'].join(' Â· '),
+      style: TextStyle(
+        color: active ? krzeneGreen : krzeneMuted,
+        fontSize: 9,
+        fontWeight: FontWeight.w800,
+        letterSpacing: .8,
+      ),
+    ),
+    trailing: IconButton(
+      tooltip: 'Edit ${profile.name}',
+      onPressed: onEdit,
+      icon: const Icon(Icons.edit_rounded, color: krzeneRed),
+    ),
+    onTap: onEdit,
+  );
+}
+
+Future<bool> _confirmDeleteProfile(
+  BuildContext context,
+  KrzeneController controller,
+  ViewerProfile profile,
+) async {
+  final confirmed = await showModalBottomSheet<bool>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.delete_forever_rounded,
+              color: krzeneRed,
+              size: 48,
+            ),
+            const SizedBox(height: 17),
+            Text(
+              'Delete ${profile.name}?',
+              textAlign: TextAlign.center,
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 9),
+            const Text(
+              'This permanently deletes the profile, its saved library, and Continue Watching history. This cannot be undone.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: krzeneMuted, height: 1.5),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(sheetContext, true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: krzeneRed,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.delete_forever_rounded),
+                label: const Text('Delete profile'),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(sheetContext, false),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (confirmed != true || !context.mounted) return false;
+  try {
+    await controller.deleteProfile(profile);
+    return true;
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_readableError(error))));
+    }
+    return false;
+  }
+}
+
+Future<void> _editProfileName(
+  BuildContext context,
+  KrzeneController controller,
+  ViewerProfile profile,
+) async {
+  final name = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _ProfileNameEditorSheet(profile: profile),
+  );
+  if (name == null || name == profile.name || !context.mounted) return;
+  try {
+    await controller.renameProfile(profile, name);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(_readableError(error))));
+  }
+}
+
+class _ProfileNameEditorSheet extends StatefulWidget {
+  const _ProfileNameEditorSheet({required this.profile});
+
+  final ViewerProfile profile;
+
+  @override
+  State<_ProfileNameEditorSheet> createState() =>
+      _ProfileNameEditorSheetState();
+}
+
+class _ProfileNameEditorSheetState extends State<_ProfileNameEditorSheet> {
+  late final TextEditingController text;
+
+  @override
+  void initState() {
+    super.initState();
+    text = TextEditingController(text: widget.profile.name);
+    text.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: text.text.length,
+    );
+  }
+
+  @override
+  void dispose() {
+    text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.fromLTRB(
+      22,
+      8,
+      22,
+      MediaQuery.viewInsetsOf(context).bottom + 24,
+    ),
+    child: SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.edit_rounded, color: krzeneRed, size: 40),
+          const SizedBox(height: 16),
+          Text(
+            'Edit profile name',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: text,
+            autofocus: true,
+            maxLength: 32,
+            textAlign: TextAlign.center,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(counterText: ''),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: text.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(context, text.text.trim()),
+              child: const Text('Save name'),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _LegalCopy extends StatelessWidget {
   const _LegalCopy({required this.sections});
   final List<(String, String)> sections;
@@ -1870,133 +2227,130 @@ Future<void> _createProfileSheet(
   BuildContext context,
   KrzeneController controller,
 ) async {
-  final text = TextEditingController();
-  var kids = false;
-  final create = await showModalBottomSheet<bool>(
+  final draft = await showModalBottomSheet<_ProfileDraft>(
     context: context,
     isScrollControlled: true,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setSheetState) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          22,
-          6,
-          22,
-          MediaQuery.viewInsetsOf(context).bottom + 24,
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const KrzeneMark(size: 62),
-              const SizedBox(height: 18),
-              Text(
-                'Create a profile',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 7),
-              const Text(
-                'Give everyone their own library.',
-                style: TextStyle(color: krzeneMuted),
-              ),
-              const SizedBox(height: 24),
-              TextField(
-                controller: text,
-                autofocus: true,
-                maxLength: 32,
-                textAlign: TextAlign.center,
-                decoration: const InputDecoration(
-                  hintText: 'Profile name',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                activeTrackColor: krzeneRed,
-                title: const Text(
-                  'Kids profile',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: const Text(
-                  'Show only kids catalog rails.',
-                  style: TextStyle(color: krzeneMuted, fontSize: 12),
-                ),
-                value: kids,
-                onChanged: (value) => setSheetState(() => kids = value),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Create profile'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
+    builder: (_) => const _CreateProfileEditorSheet(),
   );
-  final name = text.text.trim();
-  text.dispose();
-  if (create == true && name.isNotEmpty) {
-    await controller.createProfile(name, kids: kids);
+  if (draft == null || !context.mounted) return;
+  try {
+    await controller.createProfile(draft.name, kids: draft.kids);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(_readableError(error))));
   }
 }
 
 Future<void> _createProfile(
   BuildContext context,
   KrzeneController controller,
-) async {
+) => _createProfileSheet(context, controller);
+
+String _readableError(Object error) =>
+    error.toString().replaceFirst('Exception: ', '');
+
+class _ProfileDraft {
+  const _ProfileDraft(this.name, this.kids);
+  final String name;
+  final bool kids;
+}
+
+class _CreateProfileEditorSheet extends StatefulWidget {
+  const _CreateProfileEditorSheet();
+
+  @override
+  State<_CreateProfileEditorSheet> createState() =>
+      _CreateProfileEditorSheetState();
+}
+
+class _CreateProfileEditorSheetState extends State<_CreateProfileEditorSheet> {
   final text = TextEditingController();
-  var kids = false;
-  final create = await showDialog<bool>(
-    context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        title: const Text('Add profile'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: text,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Kids profile'),
-              value: kids,
-              onChanged: (value) => setState(() => kids = value),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+  bool kids = false;
+
+  @override
+  void dispose() {
+    text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.fromLTRB(
+      22,
+      6,
+      22,
+      MediaQuery.viewInsetsOf(context).bottom + 24,
+    ),
+    child: SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const KrzeneMark(size: 62),
+          const SizedBox(height: 18),
+          Text(
+            'Create a profile',
+            style: Theme.of(context).textTheme.headlineMedium,
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Create'),
+          const SizedBox(height: 7),
+          const Text(
+            'Give everyone their own library.',
+            style: TextStyle(color: krzeneMuted),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: text,
+            autofocus: true,
+            maxLength: 32,
+            textAlign: TextAlign.center,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Profile name',
+              counterText: '',
+            ),
+          ),
+          const SizedBox(height: 10),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            activeTrackColor: krzeneRed,
+            title: const Text(
+              'Kids profile',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text(
+              'Show only kids catalog rails.',
+              style: TextStyle(color: krzeneMuted, fontSize: 12),
+            ),
+            value: kids,
+            onChanged: (value) => setState(() => kids = value),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed: text.text.trim().isEmpty
+                      ? null
+                      : () => Navigator.pop(
+                          context,
+                          _ProfileDraft(text.text.trim(), kids),
+                        ),
+                  child: const Text('Create profile'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     ),
   );
-  if (create == true && text.text.trim().isNotEmpty) {
-    await controller.createProfile(text.text.trim(), kids: kids);
-  }
 }

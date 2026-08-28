@@ -153,7 +153,7 @@ class CatalogApi {
 
 class AccountRepository {
   SupabaseClient? get _client =>
-      AppConfig.hasSupabase ? Supabase.instance.client : null;
+      AppConfig.supabaseReady ? Supabase.instance.client : null;
   User? get user => _client?.auth.currentUser;
 
   Stream<AuthState> get authChanges =>
@@ -196,6 +196,31 @@ class AccountRepository {
         .select()
         .single();
     return ViewerProfile.fromJson(Map<String, dynamic>.from(row));
+  }
+
+  Future<ViewerProfile> updateProfileName(
+    ViewerProfile profile,
+    String name,
+  ) async {
+    final row = await _client!
+        .from('viewer_profiles')
+        .update({
+          'name': name,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', profile.id)
+        .eq('owner_id', user!.id)
+        .select()
+        .single();
+    return ViewerProfile.fromJson(Map<String, dynamic>.from(row));
+  }
+
+  Future<void> deleteProfile(String profileId) async {
+    await _client!
+        .from('viewer_profiles')
+        .delete()
+        .eq('id', profileId)
+        .eq('owner_id', user!.id);
   }
 
   Future<List<Media>> library(String profileId) async {

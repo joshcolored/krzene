@@ -121,6 +121,34 @@ class KrzeneController extends ChangeNotifier {
     await selectProfile(profile);
   }
 
+  Future<void> renameProfile(ViewerProfile profile, String name) async {
+    final updated = await account.updateProfileName(profile, name);
+    profiles = [
+      for (final item in profiles)
+        if (item.id == updated.id) updated else item,
+    ];
+    if (activeProfile?.id == updated.id) activeProfile = updated;
+    notifyListeners();
+  }
+
+  Future<void> deleteProfile(ViewerProfile profile) async {
+    await account.deleteProfile(profile.id);
+    profiles = profiles.where((item) => item.id != profile.id).toList();
+    if (activeProfile?.id == profile.id) {
+      activeProfile = profiles.firstOrNull;
+      final prefs = await SharedPreferences.getInstance();
+      if (activeProfile == null) {
+        await prefs.remove('active_profile');
+        library = [];
+        continueWatching = [];
+      } else {
+        await prefs.setString('active_profile', activeProfile!.id);
+        await _loadProfileData(activeProfile!);
+      }
+    }
+    notifyListeners();
+  }
+
   Future<void> saveWatchProgress(
     Media media,
     double position,

@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import 'controller.dart';
 import 'models.dart';
@@ -49,6 +52,7 @@ class _WatchScreenState extends State<WatchScreen> {
   double duration = 0;
   int savedProgressBucket = 0;
   bool resumeSent = false;
+  late bool immersive;
 
   @override
   void initState() {
@@ -57,6 +61,7 @@ class _WatchScreenState extends State<WatchScreen> {
     episode = widget.resume?.episode ?? 1;
     position = widget.resume?.position ?? 0;
     duration = widget.resume?.duration ?? 0;
+    immersive = defaultTargetPlatform == TargetPlatform.android;
     savedProgressBucket = (position / 10).floor();
     detailFuture = widget.controller.catalogApi.detail(
       widget.media,
@@ -75,6 +80,7 @@ class _WatchScreenState extends State<WatchScreen> {
           onPageFinished: (_) {
             loadTimer?.cancel();
             _installPlaybackBridge();
+            _preparePlayerPage();
             if (mounted) {
               Future.delayed(const Duration(seconds: 2), () {
                 if (mounted) setState(() => notice = null);
@@ -84,9 +90,17 @@ class _WatchScreenState extends State<WatchScreen> {
           onWebResourceError: (error) {
             if (error.isForMainFrame ?? true) _tryNextSource();
           },
+          onNavigationRequest: _handleNavigation,
         ),
-      )
-      ..loadRequest(Uri.parse(_embedUrl()));
+      );
+    if (web.platform is AndroidWebViewController) {
+      final android = web.platform as AndroidWebViewController;
+      unawaited(android.setMediaPlaybackRequiresUserGesture(false));
+    }
+    if (immersive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _enterImmersive());
+    }
+    web.loadRequest(Uri.parse(_embedUrl()));
   }
 
   Future<void> _installPlaybackBridge() async {
@@ -109,6 +123,102 @@ class _WatchScreenState extends State<WatchScreen> {
     } catch (_) {
       // Mirrors without script access still play; they simply cannot sync progress.
     }
+  }
+
+  NavigationDecision _handleNavigation(NavigationRequest request) {
+    if (!request.isMainFrame) return NavigationDecision.navigate;
+    final target = Uri.tryParse(request.url);
+    if (target == null || target.scheme == 'about') {
+      return NavigationDecision.navigate;
+    }
+    if (target.scheme != 'http' && target.scheme != 'https') {
+      return NavigationDecision.prevent;
+    }
+    const blockedAdHosts = [
+      'doubleclick.net',
+      'googlesyndication.com',
+      'popads.net',
+      'popcash.net',
+      'onclicka.com',
+      'propellerads.com',
+      'adsterra.com',
+    ];
+    final isAdHost = blockedAdHosts.any(
+      (host) => target.host == host || target.host.endsWith('.$host'),
+    );
+    return isAdHost ? NavigationDecision.prevent : NavigationDecision.navigate;
+  }
+
+  Future<void> _preparePlayerPage() async {
+    try {
+      await web.runJavaScript(r'''
+        (() => {
+          if (window.__krzenePlayerPrepared) return;
+          window.__krzenePlayerPrepared = true;
+          window.open = () => null;
+
+          const removeAds = () => {
+            const selectors = [
+              '[class*="popunder" i]', '[id*="popunder" i]',
+              '[class*="popup-ad" i]', '[id*="popup-ad" i]',
+              '[class*="ad-overlay" i]', '[id*="ad-overlay" i]',
+              'iframe[src*="doubleclick.net"]',
+              'iframe[src*="googlesyndication.com"]',
+              'iframe[src*="popads.net"]'
+            ];
+            document.querySelectorAll(selectors.join(',')).forEach((node) => node.remove());
+          };
+
+          const startPlayback = () => {
+            document.querySelectorAll('video').forEach((video) => {
+              video.autoplay = true;
+              video.playsInline = false;
+              video.play().catch(() => {
+                video.muted = true;
+                video.play().catch(() => {});
+              });
+            });
+            const buttons = document.querySelectorAll([
+              '.vjs-big-play-button', '.jw-icon-playback',
+              'button[aria-label*="play" i]', '[class*="play-button" i]'
+            ].join(','));
+            buttons.forEach((button) => {
+              if (button.offsetWidth > 0 && button.offsetHeight > 0) button.click();
+            });
+          };
+
+          removeAds();
+          startPlayback();
+          [500, 1400, 2800].forEach((delay) => setTimeout(() => {
+            removeAds();
+            startPlayback();
+          }, delay));
+        })();
+      ''');
+    } catch (_) {
+      // Cross-origin provider internals may reject script access; URL autoplay
+      // and the native WebView media setting still apply in that case.
+    }
+  }
+
+  Future<void> _enterImmersive() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  Future<void> _restoreSystemUi() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    await SystemChrome.setPreferredOrientations(const []);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  Future<void> _showDetails() async {
+    if (mounted) setState(() => immersive = false);
+    await _restoreSystemUi();
   }
 
   void _handleBridgeMessage(String raw) {
@@ -184,19 +294,23 @@ class _WatchScreenState extends State<WatchScreen> {
               if (widget.media.isSeries) 's': '$season',
               if (widget.media.isSeries) 'e': '$episode',
               'autoplay': 'true',
+              'muted': 'false',
+              'controls': 'true',
+              'continueprompt': 'false',
               if (resume > 0) 't': '$resume',
             },
           )
           .toString();
     }
     if (source.provider == 'multiembed') {
-      return Uri.parse(source.host)
+      return Uri.parse('${source.host}/directstream.php')
           .replace(
             queryParameters: {
               'video_id': '$id',
               'tmdb': '1',
               if (widget.media.isSeries) 's': '$season',
               if (widget.media.isSeries) 'e': '$episode',
+              'autoplay': '1',
             },
           )
           .toString();
@@ -234,16 +348,59 @@ class _WatchScreenState extends State<WatchScreen> {
     web.loadRequest(Uri.parse(_embedUrl()));
   }
 
+  Future<void> _closeAdAndReturnToVideo() async {
+    if (mounted) setState(() => notice = 'Returning to video...');
+    try {
+      final current = Uri.tryParse(await web.currentUrl() ?? '');
+      final expected = Uri.parse(_embedUrl());
+      final onEmbedPage =
+          current != null &&
+          current.host == expected.host &&
+          current.path == expected.path;
+      final canGoBack = await web.canGoBack();
+
+      if (!onEmbedPage && canGoBack) {
+        await web.goBack();
+      } else if (!onEmbedPage) {
+        await web.loadRequest(expected);
+      } else {
+        await web.runJavaScript(r'''
+          (() => {
+            const selectors = [
+              '[class*="popup" i]', '[id*="popup" i]',
+              '[class*="popunder" i]', '[id*="popunder" i]',
+              '[class*="ad-overlay" i]', '[id*="ad-overlay" i]',
+              'iframe[src*="doubleclick.net"]',
+              'iframe[src*="googlesyndication.com"]',
+              'iframe[src*="popads.net"]'
+            ];
+            document.querySelectorAll(selectors.join(',')).forEach((node) => node.remove());
+            document.querySelectorAll('video').forEach((video) => video.play().catch(() => {}));
+          })();
+        ''');
+      }
+    } catch (_) {
+      await web.loadRequest(Uri.parse(_embedUrl()));
+    }
+    if (mounted) {
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (mounted) setState(() => notice = null);
+      });
+    }
+  }
+
   @override
   void dispose() {
     loadTimer?.cancel();
     if (position >= 5) unawaited(_persistProgress());
+    unawaited(_restoreSystemUi());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final source = playbackSources[sourceIndex];
+    if (immersive) return _buildImmersivePlayer(context, source);
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -280,6 +437,15 @@ class _WatchScreenState extends State<WatchScreen> {
               child: Stack(
                 children: [
                   WebViewWidget(controller: web),
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: _PlayerOverlayButton(
+                      tooltip: 'Close ad and return to video',
+                      icon: Icons.close_rounded,
+                      onPressed: () => unawaited(_closeAdAndReturnToVideo()),
+                    ),
+                  ),
                   if (notice != null)
                     Positioned(
                       top: 12,
@@ -502,6 +668,158 @@ class _WatchScreenState extends State<WatchScreen> {
       ),
     );
   }
+
+  Widget _buildImmersivePlayer(BuildContext context, PlaybackSource source) =>
+      PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) unawaited(_showDetails());
+        },
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              WebViewWidget(controller: web),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: Row(
+                      children: [
+                        _PlayerOverlayButton(
+                          tooltip: 'Back',
+                          icon: Icons.arrow_back_rounded,
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            widget.media.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              shadows: [
+                                Shadow(color: Colors.black, blurRadius: 8),
+                              ],
+                            ),
+                          ),
+                        ),
+                        PopupMenuButton<int>(
+                          tooltip: 'Change server',
+                          onSelected: _selectSource,
+                          itemBuilder: (_) => [
+                            for (var i = 0; i < playbackSources.length; i++)
+                              PopupMenuItem(
+                                value: i,
+                                child: Text(playbackSources[i].name),
+                              ),
+                          ],
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: .74),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.dns_outlined, size: 17),
+                                const SizedBox(width: 7),
+                                Text(
+                                  source.name,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 9),
+                        _PlayerOverlayButton(
+                          tooltip: 'Close ad and return to video',
+                          icon: Icons.close_rounded,
+                          onPressed: () =>
+                              unawaited(_closeAdAndReturnToVideo()),
+                        ),
+                        const SizedBox(width: 9),
+                        _PlayerOverlayButton(
+                          tooltip: 'Show details',
+                          icon: Icons.fullscreen_exit_rounded,
+                          onPressed: _showDetails,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              if (notice != null)
+                Positioned(
+                  left: 18,
+                  right: 18,
+                  bottom: 18,
+                  child: SafeArea(
+                    top: false,
+                    child: Center(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 9,
+                          ),
+                          child: Text(
+                            notice!,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _PlayerOverlayButton extends StatelessWidget {
+  const _PlayerOverlayButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip,
+    onPressed: onPressed,
+    icon: Icon(icon),
+    style: IconButton.styleFrom(
+      backgroundColor: Colors.black.withValues(alpha: .74),
+      foregroundColor: Colors.white,
+      side: const BorderSide(color: Colors.white24),
+    ),
+  );
 }
 
 class _WatchNextCard extends StatelessWidget {
