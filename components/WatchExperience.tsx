@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isKidsMedia, watchHref, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
-import { DEFAULT_MIRROR, VIDSRC_MIRRORS, embedUrl, type VidSrcMirror } from "@/lib/vidsrc";
+import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/vidsrc";
 import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
 import { useAuth } from "./AuthProvider";
 
@@ -45,7 +45,7 @@ export function WatchExperience({
   const initialSeason = detail.seasons.some((entry) => entry.number === requestedSeason)
     ? requestedSeason
     : detail.seasons[0]?.number ?? 1;
-  const [mirror, setMirror] = useState<VidSrcMirror>(DEFAULT_MIRROR);
+  const [mirror, setMirror] = useState<PlaybackSource>(DEFAULT_MIRROR);
   const [season, setSeason] = useState(initialSeason);
   const [episode, setEpisode] = useState(Number.isInteger(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : 1);
   const [subtitle, setSubtitle] = useState("en");
@@ -57,18 +57,20 @@ export function WatchExperience({
   const isSeries = detail.kind === "tv";
   const seasons = detail.seasons;
   const activeSeason = seasons.find((entry) => entry.number === season) ?? seasons[0];
-  const embedId = detail.imdbId ?? detail.tmdbId;
+  const embedId = mirror.provider === "vidsrc" ? detail.imdbId ?? detail.tmdbId : detail.tmdbId;
 
   const sourceUrl = useMemo(
     () =>
       embedUrl(detail.kind, embedId, isSeries ? season : null, isSeries ? episode : null, {
         host: mirror.host,
+        provider: mirror.provider,
         subtitleLanguage: subtitle || undefined,
         autoplay: true,
+        startAt: Number.isFinite(resumeAt) && resumeAt > 0 ? resumeAt : undefined,
       }),
-    [detail.kind, embedId, episode, isSeries, mirror.host, season, subtitle],
+    [detail.kind, embedId, episode, isSeries, mirror.host, mirror.provider, resumeAt, season, subtitle],
   );
-  const [playback, remote] = useVidSrcBridge(frameRef, sourceUrl);
+  const [playback, remote] = useVidSrcBridge(frameRef, sourceUrl, mirror.provider === "vidsrc");
   const resumeSent = useRef(false);
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
@@ -92,9 +94,14 @@ export function WatchExperience({
     );
   }, [detail, episode, isSeries, progressBucket, saveWatchProgress, season]);
 
-  const sourcePath = isSeries
-    ? `embed/tv/${embedId}/${season}/${episode}`
-    : `embed/movie/${embedId}`;
+  const sourcePath = (() => {
+    try {
+      const parsed = new URL(sourceUrl);
+      return `${parsed.pathname}${parsed.search}`;
+    } catch {
+      return sourceUrl;
+    }
+  })();
   const runtime =
     playback.duration > 0
       ? `${clock(playback.position)} / ${clock(playback.duration)}`
@@ -303,7 +310,7 @@ export function WatchExperience({
 
               {openMenu === "servers" && (
                 <div className="flex flex-col gap-1">
-                  {VIDSRC_MIRRORS.map((item) => (
+                  {PLAYBACK_SOURCES.map((item) => (
                     <button
                       key={item.id}
                       type="button"
@@ -361,7 +368,7 @@ export function WatchExperience({
           <div className="mt-7 border-t border-white/9 pt-[22px]">
             <b className="text-[13px]">Source</b>
             <p className="text-xs leading-relaxed text-[#77736e]">
-              {sourcePath} on {new URL(mirror.host).host}. VidSrc&apos;s native settings menu controls playback quality, including 1080p when the stream provides it.
+              {sourcePath} on {new URL(mirror.host).host}. {mirror.name}&apos;s native settings control subtitles and playback quality, including 1080p when the selected stream provides it.
             </p>
           </div>
           <div className="mt-5 border-t border-white/9 pt-[22px]">

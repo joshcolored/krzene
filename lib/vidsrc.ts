@@ -22,19 +22,34 @@ export type VidSrcMirror = {
   name: string;
   region: string;
   host: string;
+  provider: "vidsrc";
+};
+
+export type PlaybackSource = VidSrcMirror | {
+  id: string;
+  name: string;
+  region: string;
+  host: string;
+  provider: "cinesrc" | "multiembed";
 };
 
 /** Ordered by observed reliability — the first entry is the default. */
 export const VIDSRC_MIRRORS: VidSrcMirror[] = [
-  { id: "vsembed-ru", name: "VidSrc", region: "Global", host: "https://vsembed.ru" },
-  { id: "vsembed-su", name: "VidSrc Backup", region: "Global", host: "https://vsembed.su" },
-  { id: "vidsrc-me", name: "VidSrc Legacy", region: "Global", host: "https://vidsrc.me" },
-  { id: "vidsrc-to", name: "VidSrc To", region: "EU", host: "https://vidsrc.to" },
-  { id: "vidsrc-net", name: "VidSrc Net", region: "US", host: "https://vidsrc.net" },
-  { id: "vidsrc-xyz", name: "VidSrc XYZ", region: "Backup", host: "https://vidsrc.xyz" },
+  { id: "vsembed-ru", name: "VidSrc", region: "Global", host: "https://vsembed.ru", provider: "vidsrc" },
+  { id: "vsembed-su", name: "VidSrc Backup", region: "Global", host: "https://vsembed.su", provider: "vidsrc" },
+  { id: "vidsrc-me", name: "VidSrc Legacy", region: "Global", host: "https://vidsrc.me", provider: "vidsrc" },
+  { id: "vidsrc-to", name: "VidSrc To", region: "EU", host: "https://vidsrc.to", provider: "vidsrc" },
+  { id: "vidsrc-net", name: "VidSrc Net", region: "US", host: "https://vidsrc.net", provider: "vidsrc" },
+  { id: "vidsrc-xyz", name: "VidSrc XYZ", region: "Backup", host: "https://vidsrc.xyz", provider: "vidsrc" },
 ];
 
-export const DEFAULT_MIRROR = VIDSRC_MIRRORS[0];
+export const PLAYBACK_SOURCES: PlaybackSource[] = [
+  ...VIDSRC_MIRRORS,
+  { id: "cinesrc", name: "CineSrc", region: "Global", host: "https://cinesrc.st", provider: "cinesrc" },
+  { id: "multiembed", name: "MultiEmbed", region: "Global", host: "https://multiembed.mov", provider: "multiembed" },
+];
+
+export const DEFAULT_MIRROR = PLAYBACK_SOURCES[0];
 
 export type EmbedOptions = {
   /** Mirror host, e.g. "https://vidsrc.me". Defaults to the primary mirror. */
@@ -45,6 +60,10 @@ export type EmbedOptions = {
   subtitleUrl?: string;
   /** Start playback immediately where the mirror allows it. */
   autoplay?: boolean;
+  /** Provider-specific URL format. Defaults to VidSrc for compatibility. */
+  provider?: PlaybackSource["provider"];
+  /** Resume position used by providers that accept it in the embed URL. */
+  startAt?: number;
 };
 
 function withParams(url: string, options: EmbedOptions): string {
@@ -59,6 +78,18 @@ function withParams(url: string, options: EmbedOptions): string {
 /** embed/movie/{id} */
 export function movieEmbedUrl(id: string | number, options: EmbedOptions = {}): string {
   const host = options.host ?? DEFAULT_MIRROR.host;
+  if (options.provider === "cinesrc") {
+    const url = new URL(`${host}/embed/movie/${id}`);
+    if (options.autoplay) url.searchParams.set("autoplay", "true");
+    if (options.startAt && options.startAt > 0) url.searchParams.set("t", String(Math.floor(options.startAt)));
+    return url.toString();
+  }
+  if (options.provider === "multiembed") {
+    const url = new URL(host);
+    url.searchParams.set("video_id", String(id));
+    url.searchParams.set("tmdb", "1");
+    return url.toString();
+  }
   return withParams(`${host}/embed/movie/${id}`, options);
 }
 
@@ -74,6 +105,22 @@ export function tvEmbedUrl(
   options: EmbedOptions = {},
 ): string {
   const host = options.host ?? DEFAULT_MIRROR.host;
+  if (options.provider === "cinesrc") {
+    const url = new URL(`${host}/embed/tv/${id}`);
+    if (season != null) url.searchParams.set("s", String(season));
+    if (episode != null) url.searchParams.set("e", String(episode));
+    if (options.autoplay) url.searchParams.set("autoplay", "true");
+    if (options.startAt && options.startAt > 0) url.searchParams.set("t", String(Math.floor(options.startAt)));
+    return url.toString();
+  }
+  if (options.provider === "multiembed") {
+    const url = new URL(host);
+    url.searchParams.set("video_id", String(id));
+    url.searchParams.set("tmdb", "1");
+    if (season != null) url.searchParams.set("s", String(season));
+    if (episode != null) url.searchParams.set("e", String(episode));
+    return url.toString();
+  }
   let path = `${host}/embed/tv/${id}`;
   if (season != null) {
     path += `/${season}`;

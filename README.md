@@ -8,6 +8,7 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - Trending, movie, series, anime, and Top 10 carousels
 - TMDB metadata, artwork, search, genres, and recommendations
 - VidSrc movie and episode playback
+- CineSrc and MultiEmbed fallback playback servers
 - Google sign-in through Supabase Auth
 - Multiple viewer profiles per account
 - Separate Supabase-backed library for every profile
