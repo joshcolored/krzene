@@ -611,8 +611,35 @@ function CatalogHome({
   const featureFilmHidden = searchMode || active === "Library";
   const adsEnabled = active === "Home" && !kidsMode;
 
+  const rememberWatchTransition = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    const link = target?.closest<HTMLAnchorElement>('a[href^="/watch/"]');
+    if (!link) return;
+
+    const image = link.querySelector("img");
+    const origin = image?.parentElement ?? link;
+    const rect = origin.getBoundingClientRect();
+    try {
+      sessionStorage.setItem("krzene:watch-transition", JSON.stringify({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        createdAt: Date.now(),
+      }));
+    } catch {
+      // The transition is optional when storage is unavailable.
+    }
+  }, []);
+
   return (
-    <main className="min-h-screen overflow-hidden bg-krzene-bg">
+    <main
+      className="min-h-screen overflow-hidden bg-krzene-bg"
+      onClickCapture={rememberWatchTransition}
+    >
       <header className="pwa-home-header fixed left-1/2 z-50 flex h-[62px] w-[calc(100%_-_48px)] max-w-[1180px] -translate-x-1/2 items-center justify-between gap-[18px] rounded-[22px] border border-white/9 bg-[rgba(12,12,12,.72)] p-[8px_10px] shadow-[0_16px_50px_rgba(0,0,0,.32)] backdrop-blur-3xl max-[760px]:h-[60px] max-[760px]:w-[calc(100%_-_24px)] max-[760px]:gap-2 max-[760px]:p-[7px_8px]">
         <Link
           href="/"
@@ -1010,16 +1037,18 @@ function CatalogHome({
       <div
         className={`relative z-[4] px-[max(64px,calc((100vw_-_1310px)/2))] pb-[100px] transition-[margin,padding] duration-500 ease-[cubic-bezier(.22,1,.36,1)] max-[760px]:px-5 max-[760px]:pb-[120px] ${searchMode ? "min-h-screen bg-[#090909] pt-[170px] max-[760px]:pt-[150px]" : active === "Library" ? "min-h-screen bg-[#090909] pt-[130px] max-[760px]:pt-[118px]" : "-mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] pt-[90px] max-[760px]:-mt-[140px] max-[760px]:pt-[82px]"}`}
       >
-        <div className="mb-[34px] rounded-xl border border-white/7 bg-black/25 px-4 py-3 text-[11px] tracking-[.02em] text-[#77736e] shadow-[0_12px_34px_rgba(0,0,0,.2)] backdrop-blur-xl max-[760px]:mb-[26px] [&_b]:text-[#d2cec8]">
-          {kidsMode && (
-            <b className="mr-2 rounded-full bg-[#d9edf5] px-2 py-1 text-[#16242a]">
-              KIDS
-            </b>
-          )}
-          <b>{totalTitles.toLocaleString()}</b>{" "}
-          {kidsMode ? "kid-friendly titles" : "Movies and Series loaded"}
-          {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""}
-        </div>
+        {active !== "Library" && (
+          <div className="mb-[34px] rounded-xl border border-white/7 bg-black/25 px-4 py-3 text-[11px] tracking-[.02em] text-[#77736e] shadow-[0_12px_34px_rgba(0,0,0,.2)] backdrop-blur-xl max-[760px]:mb-[26px] [&_b]:text-[#d2cec8]">
+            {kidsMode && (
+              <b className="mr-2 rounded-full bg-[#d9edf5] px-2 py-1 text-[#16242a]">
+                KIDS
+              </b>
+            )}
+            <b>{totalTitles.toLocaleString()}</b>{" "}
+            {kidsMode ? "kid-friendly titles" : "Movies and Series loaded"}
+            {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""}
+          </div>
+        )}
 
         {trimmedQuery ? (
           <section>
@@ -1061,7 +1090,7 @@ function CatalogHome({
               <ContinueWatchingRail
                 items={visibleContinueWatching}
                 profileName={activeProfile.name}
-                className="mb-[72px] max-[760px]:mb-[55px]"
+                className="mb-[72px] pt-4 max-[760px]:mb-[55px] max-[760px]:pt-3"
               />
             )}
           <section className="catalog-rail-reveal">

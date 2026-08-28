@@ -26,6 +26,16 @@ const SUBTITLE_LANGUAGES = [
 
 type WatchMenu = "servers" | "episodes" | "subtitles";
 
+type WatchTransitionOrigin = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  createdAt: number;
+};
+
 const TOOL_BUTTON =
   "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/12 bg-[#171717] px-3.5 text-xs font-bold text-[#d8d4ce] transition hover:border-white/25 hover:bg-[#232323] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f5ad12]";
 
@@ -51,6 +61,9 @@ export function WatchExperience({
   const [subtitle, setSubtitle] = useState("en");
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
   const [sourceNotice, setSourceNotice] = useState("");
+  const [transitionOrigin, setTransitionOrigin] = useState<WatchTransitionOrigin | null>(null);
+  const [transitionReady, setTransitionReady] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const mirrorRef = useRef(mirror);
   const attemptedSourcesRef = useRef(new Set<string>());
@@ -60,6 +73,27 @@ export function WatchExperience({
   const saved = library.some((item) => item.key === detail.key);
 
   mirrorRef.current = mirror;
+
+  useEffect(() => {
+    let origin: WatchTransitionOrigin | null = null;
+    try {
+      const stored = sessionStorage.getItem("krzene:watch-transition");
+      if (stored) {
+        const parsed = JSON.parse(stored) as WatchTransitionOrigin;
+        const valid =
+          Number.isFinite(parsed.left) &&
+          Number.isFinite(parsed.top) &&
+          parsed.width > 0 &&
+          parsed.viewportWidth > 0 &&
+          Date.now() - parsed.createdAt < 60_000;
+        if (valid) origin = parsed;
+      }
+    } catch {
+      // A direct page entrance simply uses the normal fade.
+    }
+    setTransitionOrigin(origin);
+    setTransitionReady(true);
+  }, []);
 
   const isSeries = detail.kind === "tv";
   const seasons = detail.seasons;
@@ -200,6 +234,18 @@ export function WatchExperience({
     setOpenMenu((current) => (current === menu ? null : menu));
   };
 
+  const returnToCatalog = useCallback(() => {
+    if (leaving) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!transitionOrigin || reduceMotion) {
+      window.location.assign("/");
+      return;
+    }
+
+    setLeaving(true);
+    window.setTimeout(() => window.history.back(), 460);
+  }, [leaving, transitionOrigin]);
+
   useEffect(() => {
     const onRemoteKey = (event: KeyboardEvent) => {
       const legacyCode = event.keyCode;
@@ -232,13 +278,13 @@ export function WatchExperience({
       } else if (event.key === "BrowserBack" || event.key === "GoBack" || legacyCode === 10009 || legacyCode === 461) {
         event.preventDefault();
         if (openMenu) setOpenMenu(null);
-        else window.history.back();
+        else returnToCatalog();
       }
     };
 
     window.addEventListener("keydown", onRemoteKey);
     return () => window.removeEventListener("keydown", onRemoteKey);
-  }, [openMenu, remote]);
+  }, [openMenu, remote, returnToCatalog]);
 
   if (!authReady) {
     return (
@@ -261,14 +307,31 @@ export function WatchExperience({
     );
   }
 
+  const transitionStyle = transitionOrigin
+    ? ({
+        "--watch-origin-x": `${transitionOrigin.left + transitionOrigin.width / 2 - transitionOrigin.viewportWidth / 2}px`,
+        "--watch-origin-y": `${transitionOrigin.top}px`,
+        "--watch-origin-scale": String(
+          Math.min(Math.max(transitionOrigin.width / transitionOrigin.viewportWidth, 0.12), 0.62),
+        ),
+      } as React.CSSProperties)
+    : undefined;
+
   return (
-    <main className="pwa-safe-bottom min-h-screen bg-[#040404] pb-[90px] text-white">
+    <main
+      className={`pwa-safe-bottom min-h-screen bg-[#040404] pb-[90px] text-white ${!transitionReady ? "opacity-0" : leaving ? "ui-watch-page-exit" : transitionOrigin ? "ui-watch-page-enter" : "ui-modal-enter"}`}
+      style={transitionStyle}
+    >
       <section className="pwa-watch-shell px-[max(26px,calc((100vw_-_1720px)/2))] pt-5">
         <header className="mb-4 flex min-w-0 items-center gap-3">
           <Link
             href="/"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#171717] text-xl text-white transition hover:bg-[#292929] focus-visible:outline-2 focus-visible:outline-[#f5ad12]"
             aria-label="Back to browse"
+            onClick={(event) => {
+              event.preventDefault();
+              returnToCatalog();
+            }}
           >
             ‹
           </Link>
@@ -282,7 +345,7 @@ export function WatchExperience({
           </div>
         </header>
 
-        <div className="ui-watch-box-enter relative aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md">
+        <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md">
           <iframe
             key={sourceUrl}
             ref={frameRef}
@@ -421,7 +484,7 @@ export function WatchExperience({
         </div>
       </section>
 
-      <section className="ui-watch-details-enter grid grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-11 px-[max(26px,calc((100vw_-_1720px)/2))] pt-[46px] max-[1080px]:grid-cols-1 max-[1080px]:gap-[30px] max-[760px]:px-[18px]">
+      <section className="grid grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-11 px-[max(26px,calc((100vw_-_1720px)/2))] pt-[46px] max-[1080px]:grid-cols-1 max-[1080px]:gap-[30px] max-[760px]:px-[18px]">
         <div>
           {notice && (
             <p className="mb-[14px] rounded-xl border border-[rgba(224,160,74,.32)] bg-[rgba(224,160,74,.1)] px-[15px] py-3 text-xs leading-[1.6] text-[#e5b878]" role="status">
