@@ -52,7 +52,7 @@ export type StreamingOffer = {
 };
 
 export type HomeData =
-  | { configured: true; hero: MediaDetail; rails: MediaRail[]; vidsrcMirror: string | null }
+  | { configured: true; hero: MediaDetail; rails: MediaRail[]; vidsrcMirror: string | null; localeCode: string }
   | { configured: false; reason: string };
 
 /**

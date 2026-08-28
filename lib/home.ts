@@ -8,6 +8,7 @@
  */
 
 import type { HomeData, Media, MediaRail } from "./media";
+import { catalogLocale } from "./catalog-locale";
 import { fetchDeepList, fetchDetail, fetchList, genreMap, isConfigured } from "./tmdb";
 import { vidsrcList } from "./vidsrc";
 
@@ -19,12 +20,23 @@ const ANIME_PARAMS = {
   "vote_count.gte": 50,
 };
 
-export async function getHomeData(): Promise<HomeData> {
+export async function getHomeData(localeCode?: string | null): Promise<HomeData> {
   if (!isConfigured()) {
     return { configured: false, reason: "TMDB_API_KEY is not set." };
   }
 
-  const genres = await genreMap();
+  const locale = catalogLocale(localeCode);
+  const genres = await genreMap(locale.tmdbLanguage);
+  const deepList = (
+    path: string,
+    kind: "movie" | "tv",
+    params: Record<string, string | number> = {},
+  ) => fetchDeepList(path, kind, genres, { ...params, language: locale.tmdbLanguage });
+  const list = (
+    path: string,
+    kind: "movie" | "tv",
+    params: Record<string, string | number> = {},
+  ) => fetchList(path, kind, genres, { ...params, language: locale.tmdbLanguage });
 
   const [
     trending,
@@ -37,41 +49,41 @@ export async function getHomeData(): Promise<HomeData> {
     onTheAir,
     topShows,
     anime,
-    filipinoMovies,
+    regionalMovies,
     kidsMovies,
     kidsShows,
     kidsAnimation,
     vidsrcMovies,
     vidsrcShows,
   ] = await Promise.all([
-    fetchDeepList("/trending/all/week", "movie", genres),
-    fetchDeepList("/trending/movie/day", "movie", genres),
-    fetchDeepList("/trending/tv/day", "tv", genres),
-    fetchDeepList("/movie/popular", "movie", genres),
-    fetchDeepList("/movie/top_rated", "movie", genres),
-    fetchList("/movie/upcoming", "movie", genres),
-    fetchDeepList("/tv/popular", "tv", genres),
-    fetchList("/tv/on_the_air", "tv", genres),
-    fetchDeepList("/tv/top_rated", "tv", genres),
-    fetchDeepList("/discover/tv", "tv", genres, ANIME_PARAMS),
-    fetchDeepList("/discover/movie", "movie", genres, {
-      with_origin_country: "PH",
-      with_original_language: "tl",
-      region: "PH",
+    deepList("/trending/all/week", "movie"),
+    deepList("/trending/movie/day", "movie"),
+    deepList("/trending/tv/day", "tv"),
+    deepList("/movie/popular", "movie", { region: locale.countryCode }),
+    deepList("/movie/top_rated", "movie", { region: locale.countryCode }),
+    list("/movie/upcoming", "movie", { region: locale.countryCode }),
+    deepList("/tv/popular", "tv"),
+    list("/tv/on_the_air", "tv"),
+    deepList("/tv/top_rated", "tv"),
+    deepList("/discover/tv", "tv", ANIME_PARAMS),
+    deepList("/discover/movie", "movie", {
+      with_origin_country: locale.countryCode,
+      with_original_language: locale.originalLanguage,
+      region: locale.countryCode,
       include_adult: "false",
       sort_by: "popularity.desc",
     }),
-    fetchDeepList("/discover/movie", "movie", genres, {
+    deepList("/discover/movie", "movie", {
       with_genres: 10751,
       include_adult: "false",
       sort_by: "popularity.desc",
     }),
-    fetchDeepList("/discover/tv", "tv", genres, {
+    deepList("/discover/tv", "tv", {
       with_genres: "10762|10751",
       include_adult: "false",
       sort_by: "popularity.desc",
     }),
-    fetchDeepList("/discover/tv", "tv", genres, {
+    deepList("/discover/tv", "tv", {
       with_genres: "16,10762",
       include_adult: "false",
       sort_by: "popularity.desc",
@@ -91,12 +103,12 @@ export async function getHomeData(): Promise<HomeData> {
   const candidates = [...trending, ...popularMovies, ...popularShows];
   const lead = candidates.find((item) => item.backdrop) ?? candidates[0];
   const hero =
-    (await fetchDetail(lead.kind, lead.tmdbId)) ??
+    (await fetchDetail(lead.kind, lead.tmdbId, locale.tmdbLanguage)) ??
     { ...lead, imdbId: null, runtime: "", tagline: "", seasons: [], recommendations: [] };
 
   const rails: MediaRail[] = [
     { id: "trending", kicker: "JUST FOR YOU", heading: "Trending this week", kind: "mixed", items: trending },
-    { id: "philippines-popular", kicker: "FILIPINO STORIES", heading: "Popular in the Philippines", kind: "movie", items: filipinoMovies },
+    { id: "regional-popular", kicker: `${locale.label.toUpperCase()} STORIES`, heading: `Popular in ${locale.country}`, kind: "movie", items: regionalMovies },
     { id: "trending-movies", kicker: "TRENDING TODAY", heading: "Movies everyone is watching", kind: "movie", items: trendingMovies },
     { id: "trending-shows", kicker: "TRENDING TODAY", heading: "Series everyone is watching", kind: "tv", items: trendingShows },
     { id: "movies-popular", kicker: "MOVIES", heading: "Popular movies", kind: "movie", items: popularMovies },
@@ -135,6 +147,7 @@ export async function getHomeData(): Promise<HomeData> {
     hero,
     rails: rails.filter((rail) => rail.items.length > 0),
     vidsrcMirror: vidsrcMovies?.mirror ?? vidsrcShows?.mirror ?? null,
+    localeCode: locale.code,
   };
 }
 

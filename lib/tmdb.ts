@@ -128,10 +128,10 @@ function yearOf(item: TmdbItem): number | null {
 }
 
 /** Genre id → name, fetched once per revalidation window. */
-export async function genreMap(): Promise<Map<number, string>> {
+export async function genreMap(language = "en-US"): Promise<Map<number, string>> {
   const [movies, shows] = await Promise.all([
-    tmdb<{ genres?: { id: number; name: string }[] }>("/genre/movie/list"),
-    tmdb<{ genres?: { id: number; name: string }[] }>("/genre/tv/list"),
+    tmdb<{ genres?: { id: number; name: string }[] }>("/genre/movie/list", { language }),
+    tmdb<{ genres?: { id: number; name: string }[] }>("/genre/tv/list", { language }),
   ]);
   const map = new Map<number, string>();
   for (const genre of [...(movies?.genres ?? []), ...(shows?.genres ?? [])]) map.set(genre.id, genre.name);
@@ -208,11 +208,15 @@ export async function fetchDeepList(
   return dedupe([...first, ...second]);
 }
 
-export async function searchMedia(query: string): Promise<Media[]> {
+export async function searchMedia(query: string, language = "en-US"): Promise<Media[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
-  const genres = await genreMap();
-  const page = await tmdb<TmdbPage>("/search/multi", { query: trimmed, include_adult: "false" });
+  const genres = await genreMap(language);
+  const page = await tmdb<TmdbPage>("/search/multi", {
+    query: trimmed,
+    include_adult: "false",
+    language,
+  });
   const results = (page?.results ?? []).filter(
     (item) => item.media_type === "movie" || item.media_type === "tv",
   );
@@ -256,10 +260,15 @@ export type DetailOutcome =
   | { status: "missing" }
   | { status: "unavailable" };
 
-export async function fetchDetailOutcome(kind: MediaKind, tmdbId: number): Promise<DetailOutcome> {
-  const genres = await genreMap();
+export async function fetchDetailOutcome(
+  kind: MediaKind,
+  tmdbId: number,
+  language = "en-US",
+): Promise<DetailOutcome> {
+  const genres = await genreMap(language);
   const { data: detail, missing } = await tmdbRaw<TmdbDetail>(`/${kind}/${tmdbId}`, {
     append_to_response: "external_ids,recommendations,similar",
+    language,
   });
   if (!detail) return missing ? { status: "missing" } : { status: "unavailable" };
 
@@ -285,8 +294,12 @@ export async function fetchDetailOutcome(kind: MediaKind, tmdbId: number): Promi
   };
 }
 
-export async function fetchDetail(kind: MediaKind, tmdbId: number): Promise<MediaDetail | null> {
-  const outcome = await fetchDetailOutcome(kind, tmdbId);
+export async function fetchDetail(
+  kind: MediaKind,
+  tmdbId: number,
+  language = "en-US",
+): Promise<MediaDetail | null> {
+  const outcome = await fetchDetailOutcome(kind, tmdbId, language);
   return outcome.status === "ok" ? outcome.detail : null;
 }
 

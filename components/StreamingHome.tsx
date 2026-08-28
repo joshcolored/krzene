@@ -10,6 +10,7 @@ import {
   type MediaDetail,
   type MediaRail,
 } from "@/lib/media";
+import { CATALOG_LOCALES, catalogLocale } from "@/lib/catalog-locale";
 import { AdSenseUnit } from "./AdSenseUnit";
 import { useAuth, type ContinueWatchingItem } from "./AuthProvider";
 import { CatalogSponsorModal } from "./CatalogSponsorModal";
@@ -25,6 +26,7 @@ type IconName =
   | "anime"
   | "library"
   | "search"
+  | "language"
   | "menu"
   | "chevron-left"
   | "chevron-right"
@@ -92,6 +94,12 @@ function UiIcon({ name }: { name: IconName }) {
         <>
           <circle cx="10.5" cy="10.5" r="6.5" />
           <path d="m15.4 15.4 4.6 4.6" />
+        </>
+      )}
+      {name === "language" && (
+        <>
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5M12 3.5C9.8 5.8 8.7 8.6 8.7 12s1.1 6.2 3.3 8.5" />
         </>
       )}
       {name === "menu" && (
@@ -415,10 +423,12 @@ function CatalogHome({
   hero,
   rails,
   vidsrcMirror,
+  localeCode,
 }: {
   hero: MediaDetail;
   rails: MediaRail[];
   vidsrcMirror: string | null;
+  localeCode: string;
 }) {
   const [active, setActive] = useState<NavItem>("Home");
   const [query, setQuery] = useState("");
@@ -432,6 +442,7 @@ function CatalogHome({
   const [showSignIn, setShowSignIn] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const searchToken = useRef(0);
+  const activeLocale = catalogLocale(localeCode);
   const {
     ready: authReady,
     user,
@@ -507,6 +518,13 @@ function CatalogHome({
     }
   };
 
+  const changeLanguage = (nextCode: string) => {
+    document.cookie = `krzene-language=${encodeURIComponent(nextCode)}; Max-Age=31536000; Path=/; SameSite=Lax`;
+    const url = new URL(window.location.href);
+    url.searchParams.set("lang", nextCode);
+    window.location.assign(url.toString());
+  };
+
   // Debounced server-side search keeps the TMDB credential off the client.
   useEffect(() => {
     const trimmed = query.trim();
@@ -520,7 +538,7 @@ function CatalogHome({
     const timer = setTimeout(async () => {
       try {
         const response = await fetch(
-          `/api/search?q=${encodeURIComponent(trimmed)}${kidsMode ? "&kids=1" : ""}`,
+          `/api/search?q=${encodeURIComponent(trimmed)}&lang=${encodeURIComponent(localeCode)}${kidsMode ? "&kids=1" : ""}`,
         );
         const payload = await response.json();
         if (token === searchToken.current) setResults(payload.results ?? []);
@@ -531,7 +549,7 @@ function CatalogHome({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [kidsMode, query]);
+  }, [kidsMode, localeCode, query]);
 
   const visibleRails = useMemo(() => {
     switch (active) {
@@ -642,7 +660,7 @@ function CatalogHome({
     >
       <header className="pwa-home-header fixed left-1/2 z-50 flex h-[62px] w-[calc(100%_-_48px)] max-w-[1180px] -translate-x-1/2 items-center justify-between gap-[18px] rounded-[22px] border border-white/9 bg-[rgba(12,12,12,.72)] p-[8px_10px] shadow-[0_16px_50px_rgba(0,0,0,.32)] backdrop-blur-3xl max-[760px]:h-[60px] max-[760px]:w-[calc(100%_-_24px)] max-[760px]:gap-2 max-[760px]:p-[7px_8px]">
         <Link
-          href="/"
+          href={`/?lang=${encodeURIComponent(localeCode)}`}
           className="inline-flex h-[42px] basis-[42px] shrink-0 items-center justify-center overflow-hidden rounded-[14px] max-[760px]:h-10 max-[760px]:basis-10"
           aria-label="Krzene home"
         >
@@ -675,6 +693,25 @@ function CatalogHome({
           ))}
         </nav>
         <div className="flex items-center gap-[7px] border-l border-white/9 pl-3 max-[760px]:border-0 max-[760px]:p-0">
+          <label
+            className="flex h-10 items-center gap-1.5 rounded-xl px-2 text-[#aaa6a0] transition hover:bg-white/8 hover:text-white max-[760px]:hidden"
+            title={`${activeLocale.label} · ${activeLocale.country}`}
+          >
+            <span className="text-base" aria-hidden="true"><UiIcon name="language" /></span>
+            <span className="sr-only">Catalog language</span>
+            <select
+              className="max-w-[92px] cursor-pointer border-0 bg-transparent text-xs font-bold text-inherit outline-none"
+              value={localeCode}
+              onChange={(event) => changeLanguage(event.target.value)}
+              aria-label="Catalog language"
+            >
+              {CATALOG_LOCALES.map((locale) => (
+                <option className="bg-[#171717] text-white" key={locale.code} value={locale.code}>
+                  {locale.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             className={`flex h-10 cursor-pointer items-center gap-1.5 rounded-xl border-0 px-2.5 text-[13px] font-bold transition hover:bg-white/8 hover:text-white max-[760px]:px-[7px] max-[760px]:text-[21px] max-[760px]:[&_span]:hidden ${showSearch ? "bg-white/8 text-white" : "bg-transparent text-[#aaa6a0]"}`}
             onClick={() => setShowSearch((current) => !current)}
@@ -726,6 +763,22 @@ function CatalogHome({
             className="ui-menu-enter absolute top-[calc(100%_+_8px)] right-0 hidden w-[220px] origin-top-right flex-col gap-1 rounded-2xl border border-white/10 bg-[rgba(14,14,14,.98)] p-2 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-2xl max-[760px]:flex"
             role="menu"
           >
+            <label className="mb-1 flex items-center gap-3 rounded-xl border border-white/8 bg-white/5 px-3 py-2.5">
+              <span className="text-lg text-[#aaa6a0]" aria-hidden="true"><UiIcon name="language" /></span>
+              <span className="sr-only">Catalog language</span>
+              <select
+                className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-sm font-bold text-white outline-none"
+                value={localeCode}
+                onChange={(event) => changeLanguage(event.target.value)}
+                aria-label="Catalog language"
+              >
+                {CATALOG_LOCALES.map((locale) => (
+                  <option className="bg-[#171717] text-white" key={locale.code} value={locale.code}>
+                    {locale.label} · {locale.country}
+                  </option>
+                ))}
+              </select>
+            </label>
             {visibleNavItems.map((item) => (
               <button
                 key={item}
@@ -1369,6 +1422,7 @@ export function StreamingHome({ data }: { data: HomeData }) {
       hero={data.hero}
       rails={data.rails}
       vidsrcMirror={data.vidsrcMirror}
+      localeCode={data.localeCode}
     />
   );
 }
