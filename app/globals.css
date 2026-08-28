@@ -82,18 +82,62 @@ button, a { -webkit-tap-highlight-color: transparent; }
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes catalog-rail-in {
+  from { opacity: 0; transform: translateY(34px) scale(.992); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes watch-box-grow {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(.9);
+    filter: blur(8px);
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, .48);
+  }
+}
+
+@keyframes watch-details-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .ui-search-enter { animation: ui-search-in 220ms cubic-bezier(.2, .8, .2, 1) both; }
 .ui-menu-enter { animation: ui-menu-in 190ms cubic-bezier(.2, .8, .2, 1) both; }
 .ui-modal-enter { animation: ui-modal-in 240ms ease-out both; }
 .ui-modal-panel-enter { animation: ui-modal-panel-in 300ms cubic-bezier(.16, 1, .3, 1) both; }
 .ui-toast-enter { animation: ui-toast-in 220ms cubic-bezier(.2, .8, .2, 1) both; }
+.catalog-rail-reveal { animation: catalog-rail-in 620ms cubic-bezier(.16, 1, .3, 1) both; }
+.ui-watch-box-enter {
+  animation: watch-box-grow 680ms cubic-bezier(.16, 1, .3, 1) both;
+  transform-origin: center top;
+  will-change: transform, opacity;
+}
+.ui-watch-details-enter {
+  animation: watch-details-in 560ms 180ms cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@supports (animation-timeline: view()) {
+  .catalog-rail-reveal {
+    animation-timeline: view(block);
+    animation-range: entry 0% cover 24%;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ui-search-enter,
   .ui-menu-enter,
   .ui-modal-enter,
   .ui-modal-panel-enter,
-  .ui-toast-enter { animation: none; }
+  .ui-toast-enter,
+  .catalog-rail-reveal,
+  .ui-watch-box-enter,
+  .ui-watch-details-enter { animation: none; }
 }
 
 /* Deep, horizontally scrollable rails — each holds 20-40 titles. */

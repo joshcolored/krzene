@@ -11,7 +11,7 @@ import {
   type MediaRail,
 } from "@/lib/media";
 import { AdSenseUnit } from "./AdSenseUnit";
-import { useAuth } from "./AuthProvider";
+import { useAuth, type ContinueWatchingItem } from "./AuthProvider";
 import { CatalogSponsorModal } from "./CatalogSponsorModal";
 import { ProfileChooser } from "./ProfileChooser";
 
@@ -129,6 +129,86 @@ function clockLabel(seconds: number): string {
     : `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
+function ContinueWatchingRail({
+  items,
+  profileName,
+  className = "",
+}: {
+  items: ContinueWatchingItem[];
+  profileName: string;
+  className?: string;
+}) {
+  if (!items.length) return null;
+
+  return (
+    <section className={`catalog-rail-reveal ${className}`}>
+      <div className="mb-[19px] flex items-end justify-between">
+        <div>
+          <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">
+            FOR {profileName.toUpperCase()}
+          </span>
+          <h2 className="mt-[5px] font-display text-[22px] leading-[1.2] font-bold tracking-[-.025em]">
+            Continue watching
+          </h2>
+        </div>
+        <span className="text-[11px] font-bold text-[#6f6b66]">
+          {items.length} saved
+        </span>
+      </div>
+      <div className="media-rail flex snap-x snap-proximity gap-4 overflow-x-auto pb-[10px] max-[760px]:mr-[-20px] max-[760px]:pr-5">
+        {items.map((item) => {
+          const progress =
+            item.duration > 0 ? Math.min(item.position / item.duration, 1) : 0;
+          const resumeQuery = new URLSearchParams({
+            t: String(Math.floor(item.position)),
+          });
+          if (item.season != null) resumeQuery.set("season", String(item.season));
+          if (item.episode != null) resumeQuery.set("episode", String(item.episode));
+
+          return (
+            <Link
+              key={item.media.key}
+              href={`${watchHref(item.media)}?${resumeQuery.toString()}`}
+              className="group min-w-0 shrink-0 basis-[calc((100%_-_64px)/5)] snap-start max-[1080px]:basis-[calc((100%_-_32px)/3)] max-[760px]:basis-[74vw]"
+            >
+              <span className="relative block aspect-[1.56] overflow-hidden rounded-[15px] border border-white/6 bg-[#171717]">
+                {artFor(item.media) ? (
+                  <img
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.055]"
+                    src={artFor(item.media)!}
+                    alt=""
+                  />
+                ) : (
+                  <span className="flex h-full items-center justify-center text-[#77736e]">
+                    {item.media.title}
+                  </span>
+                )}
+                <span className="absolute inset-0 bg-[linear-gradient(0deg,rgba(0,0,0,.72),transparent_58%)]" />
+                <span
+                  className="absolute bottom-0 left-0 h-1 bg-krzene-red transition-all"
+                  style={{ width: `${progress * 100}%` }}
+                />
+                <span className="absolute right-3 bottom-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-lg text-black shadow-lg transition group-hover:scale-105">
+                  <UiIcon name="play" />
+                </span>
+              </span>
+              <span className="flex min-w-0 flex-col px-1 pt-3">
+                <b className="truncate text-sm">{item.media.title}</b>
+                <small className="mt-1 text-[#77736e]">
+                  {item.season != null && item.episode != null
+                    ? `S${item.season} · E${item.episode} · `
+                    : ""}
+                  Resume at {clockLabel(item.position)}
+                </small>
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function MediaCard({
   media,
   saved,
@@ -229,7 +309,7 @@ function Rail({
   };
 
   return (
-    <section className={first ? "pt-0" : "pt-[72px] max-[760px]:pt-[55px]"}>
+    <section className={`catalog-rail-reveal ${first ? "pt-0" : "pt-[72px] max-[760px]:pt-[55px]"}`}>
       <div className="mb-[19px] flex items-end justify-between">
         <div>
           <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">
@@ -528,6 +608,7 @@ function CatalogHome({
   const heroArt = activeHero.backdrop ?? activeHero.poster;
   const trimmedQuery = query.trim();
   const searchMode = showSearch || Boolean(trimmedQuery);
+  const featureFilmHidden = searchMode || active === "Library";
   const adsEnabled = active === "Home" && !kidsMode;
 
   return (
@@ -786,9 +867,13 @@ function CatalogHome({
         </div>
       )}
 
-      {!searchMode && (
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${featureFilmHidden ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
+        aria-hidden={featureFilmHidden}
+      >
+        <div className="min-h-0 overflow-hidden">
         <section
-          className="relative flex min-h-[780px] items-start overflow-hidden bg-[#090909] bg-cover bg-[position:63%_45%] max-[760px]:min-h-[720px] max-[760px]:bg-[position:62%_center]"
+          className={`relative flex min-h-[780px] items-start overflow-hidden bg-[#090909] bg-cover bg-[position:63%_45%] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] max-[760px]:min-h-[720px] max-[760px]:bg-[position:62%_center] ${featureFilmHidden ? "-translate-y-20 scale-[.985]" : "translate-y-0 scale-100"}`}
           style={
             {
               backgroundImage: heroArt ? `url(${heroArt})` : "none",
@@ -919,10 +1004,11 @@ function CatalogHome({
             )}
           </div>
         </section>
-      )}
+        </div>
+      </div>
 
       <div
-        className={`relative z-[4] px-[max(64px,calc((100vw_-_1310px)/2))] pb-[100px] max-[760px]:px-5 max-[760px]:pb-[120px] ${searchMode ? "min-h-screen bg-[#090909] pt-[170px] max-[760px]:pt-[150px]" : "-mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] pt-[90px] max-[760px]:-mt-[140px] max-[760px]:pt-[82px]"}`}
+        className={`relative z-[4] px-[max(64px,calc((100vw_-_1310px)/2))] pb-[100px] transition-[margin,padding] duration-500 ease-[cubic-bezier(.22,1,.36,1)] max-[760px]:px-5 max-[760px]:pb-[120px] ${searchMode ? "min-h-screen bg-[#090909] pt-[170px] max-[760px]:pt-[150px]" : active === "Library" ? "min-h-screen bg-[#090909] pt-[130px] max-[760px]:pt-[118px]" : "-mt-[150px] bg-[linear-gradient(to_bottom,transparent_0px,rgba(7,7,7,.72)_105px,#090909_220px)] pt-[90px] max-[760px]:-mt-[140px] max-[760px]:pt-[82px]"}`}
       >
         <div className="mb-[34px] rounded-xl border border-white/7 bg-black/25 px-4 py-3 text-[11px] tracking-[.02em] text-[#77736e] shadow-[0_12px_34px_rgba(0,0,0,.2)] backdrop-blur-xl max-[760px]:mb-[26px] [&_b]:text-[#d2cec8]">
           {kidsMode && (
@@ -970,7 +1056,15 @@ function CatalogHome({
             )}
           </section>
         ) : active === "Library" ? (
-          <section>
+          <>
+            {activeProfile && (
+              <ContinueWatchingRail
+                items={visibleContinueWatching}
+                profileName={activeProfile.name}
+                className="mb-[72px] max-[760px]:mb-[55px]"
+              />
+            )}
+          <section className="catalog-rail-reveal">
             <div className="mb-[19px] flex items-end justify-between">
               <div>
                 <span className="text-[10px] font-extrabold tracking-[.13em] text-[#77736e]">
@@ -1001,6 +1095,7 @@ function CatalogHome({
               </p>
             )}
           </section>
+          </>
         ) : (
           <>
             {active === "Home" &&

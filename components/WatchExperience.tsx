@@ -282,7 +282,7 @@ export function WatchExperience({
           </div>
         </header>
 
-        <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md">
+        <div className="ui-watch-box-enter relative aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md">
           <iframe
             key={sourceUrl}
             ref={frameRef}
@@ -421,7 +421,7 @@ export function WatchExperience({
         </div>
       </section>
 
-      <section className="grid grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-11 px-[max(26px,calc((100vw_-_1720px)/2))] pt-[46px] max-[1080px]:grid-cols-1 max-[1080px]:gap-[30px] max-[760px]:px-[18px]">
+      <section className="ui-watch-details-enter grid grid-cols-[minmax(0,1fr)_minmax(280px,340px)] gap-11 px-[max(26px,calc((100vw_-_1720px)/2))] pt-[46px] max-[1080px]:grid-cols-1 max-[1080px]:gap-[30px] max-[760px]:px-[18px]">
         <div>
           {notice && (
             <p className="mb-[14px] rounded-xl border border-[rgba(224,160,74,.32)] bg-[rgba(224,160,74,.1)] px-[15px] py-3 text-xs leading-[1.6] text-[#e5b878]" role="status">

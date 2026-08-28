@@ -37,6 +37,7 @@ export async function getHomeData(): Promise<HomeData> {
     onTheAir,
     topShows,
     anime,
+    filipinoMovies,
     kidsMovies,
     kidsShows,
     kidsAnimation,
@@ -53,6 +54,13 @@ export async function getHomeData(): Promise<HomeData> {
     fetchList("/tv/on_the_air", "tv", genres),
     fetchDeepList("/tv/top_rated", "tv", genres),
     fetchDeepList("/discover/tv", "tv", genres, ANIME_PARAMS),
+    fetchDeepList("/discover/movie", "movie", genres, {
+      with_origin_country: "PH",
+      with_original_language: "tl",
+      region: "PH",
+      include_adult: "false",
+      sort_by: "popularity.desc",
+    }),
     fetchDeepList("/discover/movie", "movie", genres, {
       with_genres: 10751,
       include_adult: "false",
@@ -88,6 +96,7 @@ export async function getHomeData(): Promise<HomeData> {
 
   const rails: MediaRail[] = [
     { id: "trending", kicker: "JUST FOR YOU", heading: "Trending this week", kind: "mixed", items: trending },
+    { id: "philippines-popular", kicker: "FILIPINO STORIES", heading: "Popular in the Philippines", kind: "movie", items: filipinoMovies },
     { id: "trending-movies", kicker: "TRENDING TODAY", heading: "Movies everyone is watching", kind: "movie", items: trendingMovies },
     { id: "trending-shows", kicker: "TRENDING TODAY", heading: "Series everyone is watching", kind: "tv", items: trendingShows },
     { id: "movies-popular", kicker: "MOVIES", heading: "Popular movies", kind: "movie", items: popularMovies },
