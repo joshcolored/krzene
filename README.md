@@ -1,6 +1,6 @@
 # Krzene
 
-Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB-powered catalog, VidSrc playback, Google authentication, multiple viewer profiles, and separate cloud-synced libraries for every profile.
+Krzene is a cinematic streaming experience for the web, Android, and iOS. The Next.js web app and Flutter mobile app share a TMDB-powered catalog, licensed playback providers, Google authentication, viewer profiles, libraries, and Continue Watching data.
 
 ## Features
 
@@ -16,6 +16,8 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - Row Level Security protecting profile and library data
 - Privacy-aware manual AdSense placements (disabled for Kids profiles)
 - Vercel-ready OAuth callback and session middleware
+- Flutter clients for Android and iOS in `mobile/`
+- Mobile playback ordered as CineSrc, MultiEmbed, then VidSrc fallbacks
 
 ## Technology
 
@@ -36,6 +38,7 @@ Krzene is a cinematic streaming interface built with Next.js. It combines a TMDB
 - A Google Cloud project for OAuth
 - A Vercel account for deployment (optional)
 - A Google AdSense account for ads (optional)
+- Flutter 3.41 or newer for Android/iOS development (optional)
 
 ## Local installation
 
@@ -229,6 +232,57 @@ After Vercel provides the production domain, also update:
 
 Environment variable changes only affect new deployments. Redeploy after modifying them.
 
+## Flutter mobile apps
+
+The native project lives in `mobile/` and keeps the web application unchanged. It includes:
+
+- Browse, localized rails, search, Library, and Continue Watching
+- Google sign-in with the same Supabase project
+- Shared viewer profiles and profile-specific libraries
+- Kids-profile filtering
+- CineSrc as the default player, followed by MultiEmbed and VidSrc fallbacks
+- Automatic “Trying other sources...” fallback when a provider fails to load
+- Android and iOS deep-link callback handling
+
+The Flutter app reads catalog metadata through Krzene's Next.js API, so `TMDB_API_KEY` remains server-side. Deploy the current web project before using the production API URL.
+
+Add this redirect URL in **Supabase → Authentication → URL Configuration**:
+
+```text
+site.krzene.app://login-callback/
+```
+
+Run the app without putting secrets in source control:
+
+```powershell
+cd mobile
+flutter pub get
+flutter run --dart-define=KRZENE_API_BASE_URL=https://krzene.site `
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co `
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+```
+
+For an Android emulator against a local Next.js server, use `http://10.0.2.2:3000` as `KRZENE_API_BASE_URL`. Physical devices need a reachable HTTPS URL or your computer's LAN address with the appropriate platform network permissions.
+
+Build Android on Windows:
+
+```powershell
+cd mobile
+flutter build appbundle --release --dart-define=KRZENE_API_BASE_URL=https://krzene.site `
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co `
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+```
+
+Building and submitting the iOS app requires macOS with Xcode:
+
+```bash
+cd mobile
+flutter build ipa --release \
+  --dart-define=KRZENE_API_BASE_URL=https://krzene.site \
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co \
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+```
+
 ## Available commands
 
 ```bash
@@ -242,7 +296,9 @@ npm run lint     # Run the configured Next.js lint command
 
 ```text
 app/
+  api/catalog/         Localized catalog endpoint for mobile clients
   api/search/          TMDB search endpoint
+  api/title/           Movie and series detail endpoint for mobile clients
   auth/callback/       Supabase OAuth code exchange
   watch/               Movie and series playback routes
 components/
@@ -250,13 +306,14 @@ components/
   ProfileChooser.tsx   Viewer selection and profile management
   StreamingHome.tsx    Catalog, navigation, rails, and footer
   WatchExperience.tsx  Watch page and library integration
-  WatchExperience.tsx  Provider player, servers, subtitles, and episodes
+  PlayerChrome.tsx     Provider player, servers, subtitles, and episodes
 lib/
   supabase/            Browser, server, and middleware clients
   home.ts              Home catalog assembly
   tmdb.ts              TMDB API client
   vidsrc.ts            VidSrc embed helpers
 supabase/migrations/   Database schema and RLS policies
+mobile/                Flutter application for Android and iOS
 ```
 
 ## Troubleshooting
