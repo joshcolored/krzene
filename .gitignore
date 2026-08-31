@@ -5,6 +5,8 @@
 *.swo
 .idea/
 .vscode/
+.claude/
+Thumbs.db
 
 # Logs and temporary files
 *.log
@@ -28,12 +30,14 @@ out/
 .turbo/
 .vercel/
 coverage/
+build/
 *.tsbuildinfo
 next-env.d.ts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+remove.png
 
 # Flutter / Dart
 mobile/.dart_tool/
