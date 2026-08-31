@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" role="img" aria-labelledby="title desc">
+  <title id="title">Krzene</title>
+  <desc id="desc">Krzene streaming logo.</desc>
+  <rect width="64" height="64" rx="17" fill="#e21927"/>
+  <path fill="#fffaf3" d="M17 13h9v15.3L39.2 13h11L36.4 29.4 51 51H40.2L30.3 36.9 26 41.8V51h-9V13Z"/>
+  <path fill="#e21927" d="m34 22 9 6-9 6V22Z"/>
+  <text x="82" y="44" fill="#f7f4ef" font-family="Manrope, Arial, sans-serif" font-size="38" font-weight="800" letter-spacing="-2">krzene</text>
+</svg>

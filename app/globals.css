@@ -1,0 +1,142 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-krzene-bg: #070707;
+  --color-krzene-panel: #111111;
+  --color-krzene-muted: #9b9995;
+  --color-krzene-text: #f7f4ef;
+  --color-krzene-red: #e21927;
+  --font-sans: "DM Sans", Arial, sans-serif;
+  --font-display: "Manrope", sans-serif;
+}
+
+:root {
+  --bg: #070707;
+  --panel: #111111;
+  --panel-2: #181818;
+  --line: rgba(255, 255, 255, 0.09);
+  --muted: #9b9995;
+  --text: #f7f4ef;
+  --red: #e21927;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); color-scheme: dark; scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: "DM Sans", Arial, sans-serif; }
+button, input { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+
+/* iOS standalone PWAs render beneath the status bar when viewport-fit=cover.
+   These component hooks keep controls inside the device's tappable safe area
+   while preserving the edge-to-edge artwork behind them. */
+.pwa-home-header { top: 20px; }
+.pwa-home-overlay { top: 94px; }
+
+@media (max-width: 760px) {
+  .pwa-home-header { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  .pwa-home-overlay { top: calc(env(safe-area-inset-top, 0px) + 82px); }
+  .pwa-home-hero-content { padding-top: calc(env(safe-area-inset-top, 0px) + 132px); }
+  .pwa-watch-shell {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+  .pwa-profile-modal { padding-top: calc(env(safe-area-inset-top, 0px) + 118px); }
+  .pwa-profile-close { top: calc(env(safe-area-inset-top, 0px) + 16px); }
+  .pwa-profile-logo { top: calc(env(safe-area-inset-top, 0px) + 20px); }
+  .pwa-safe-bottom { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  .pwa-footer-safe { padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* TV remotes move focus programmatically, so every actionable control needs a
+   strong, consistent focus marker even when the component has no local ring. */
+.tv-navigation-active :is(a, button, input, select, textarea, [tabindex]):focus {
+  outline: 3px solid #f5ad12 !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 7px rgba(245, 173, 18, .18), 0 10px 34px rgba(0, 0, 0, .45);
+}
+
+@keyframes ui-search-in {
+  from { opacity: 0; transform: translateY(-10px) scale(.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ui-menu-in {
+  from { opacity: 0; transform: translateY(-8px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ui-modal-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-modal-panel-in {
+  from { opacity: 0; transform: translateY(18px) scale(.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ui-toast-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes catalog-rail-in {
+  from { opacity: 0; transform: translateY(34px) scale(.992); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes watch-page-grow {
+  from {
+    opacity: .2;
+    transform: translate3d(var(--watch-origin-x, 0), var(--watch-origin-y, 22px), 0)
+      scale(var(--watch-origin-scale, .18));
+    border-radius: 28px;
+    filter: blur(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    border-radius: 0;
+    filter: blur(0);
+  }
+}
+
+.ui-search-enter { animation: ui-search-in 220ms cubic-bezier(.2, .8, .2, 1) both; }
+.ui-menu-enter { animation: ui-menu-in 190ms cubic-bezier(.2, .8, .2, 1) both; }
+.ui-modal-enter { animation: ui-modal-in 240ms ease-out both; }
+.ui-modal-panel-enter { animation: ui-modal-panel-in 300ms cubic-bezier(.16, 1, .3, 1) both; }
+.ui-toast-enter { animation: ui-toast-in 220ms cubic-bezier(.2, .8, .2, 1) both; }
+.catalog-rail-reveal { animation: catalog-rail-in 620ms cubic-bezier(.16, 1, .3, 1) both; }
+.ui-watch-page-enter,
+.ui-watch-page-exit {
+  transform-origin: center top;
+  will-change: transform, opacity;
+}
+.ui-watch-page-enter { animation: watch-page-grow 620ms cubic-bezier(.16, 1, .3, 1) both; }
+.ui-watch-page-exit { animation: watch-page-grow 440ms cubic-bezier(.65, 0, .83, .23) reverse both; }
+
+@supports (animation-timeline: view()) {
+  .catalog-rail-reveal {
+    animation-timeline: view(block);
+    animation-range: entry 0% cover 24%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-search-enter,
+  .ui-menu-enter,
+  .ui-modal-enter,
+  .ui-modal-panel-enter,
+  .ui-toast-enter,
+  .catalog-rail-reveal,
+  .ui-watch-page-enter,
+  .ui-watch-page-exit { animation: none; }
+}
+
+/* Deep, horizontally scrollable rails — each holds 20-40 titles. */
+.media-rail::-webkit-scrollbar, .ranking-grid::-webkit-scrollbar { height: 6px; }
+.media-rail::-webkit-scrollbar-thumb, .ranking-grid::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+.media-rail:hover::-webkit-scrollbar-thumb, .ranking-grid:hover::-webkit-scrollbar-thumb { background: #3d3b39; }
+.media-rail::-webkit-scrollbar-track, .ranking-grid::-webkit-scrollbar-track { background: transparent; }
