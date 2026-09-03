@@ -114,9 +114,10 @@ In **Supabase Dashboard → Authentication → Sign In / Providers → Email**:
    **Password changed**. Supabase then emails the user after either the mobile
    or web client successfully updates their password.
 
-The web reset flow returns through `/auth/callback` and then opens the password
-form. Add `https://krzene.site/**` to the Supabase Redirect URLs list, along
-with any local or preview origins used for testing.
+The web reset flow returns through `/auth/recovery` and then opens the password
+form. Add `https://krzene.site/auth/recovery` and `https://krzene.site/**` to
+the Supabase Redirect URLs list, along with any local or preview origins used
+for testing.
 
 Run every migration in chronological order in the Supabase SQL Editor before
 testing a newly registered account. The app never stores a plaintext password;

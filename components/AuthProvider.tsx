@@ -183,7 +183,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     void (async () => {
       const url = new URL(window.location.href);
-      const recoveryFromUrl = url.searchParams.get("password-recovery") === "1";
+      const recoveryFromUrl =
+        url.pathname === "/reset-password" ||
+        url.searchParams.get("password-recovery") === "1";
       if (recoveryFromUrl) {
         setPasswordRecovery(true);
         document.cookie = `${BROWSER_SESSION_COOKIE}=1; Path=/; SameSite=Lax`;
@@ -313,7 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const siteUrl = window.location.origin.replace(/\/$/, "");
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.trim().toLowerCase(),
-      { redirectTo: `${siteUrl}/auth/callback?next=/?password-recovery=1` },
+      { redirectTo: `${siteUrl}/auth/recovery` },
     );
     if (error) {
       setAuthError(error.message);

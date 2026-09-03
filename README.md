@@ -251,6 +251,7 @@ Add these redirect URLs in **Supabase → Authentication → URL Configuration**
 ```text
 site.krzene.app://login-callback
 site.krzene.app://reset-password
+https://krzene.site/auth/recovery
 ```
 
 Run the app without putting secrets in source control:
