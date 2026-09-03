@@ -9,7 +9,7 @@ Krzene is a cinematic streaming experience for the web, Android, and iOS. The Ne
 - TMDB metadata, artwork, search, genres, and recommendations
 - VidSrc movie and episode playback
 - CineSrc and MultiEmbed fallback playback servers
-- Google sign-in through Supabase Auth
+- Email/password, Google, and Apple sign-in through Supabase Auth
 - Multiple viewer profiles per account
 - Separate Supabase-backed library for every profile
 - Signed-in-only libraries, hidden from guests
@@ -241,15 +241,16 @@ The native project lives in `mobile/` and keeps the web application unchanged. I
 - Shared viewer profiles and profile-specific libraries
 - Kids-profile filtering
 - CineSrc as the default player, followed by MultiEmbed and VidSrc fallbacks
-- Automatic “Trying other sources...” fallback when a provider fails to load
+- Manual source selection with an unavailable-media notice when needed
 - Android and iOS deep-link callback handling
 
 The Flutter app reads catalog metadata through Krzene's Next.js API, so `TMDB_API_KEY` remains server-side. Deploy the current web project before using the production API URL.
 
-Add this redirect URL in **Supabase → Authentication → URL Configuration**:
+Add these redirect URLs in **Supabase → Authentication → URL Configuration**:
 
 ```text
-site.krzene.app://login-callback/
+site.krzene.app://login-callback
+site.krzene.app://reset-password
 ```
 
 Run the app without putting secrets in source control:

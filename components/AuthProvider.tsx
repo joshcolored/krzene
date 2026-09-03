@@ -24,6 +24,11 @@ export type ContinueWatchingItem = {
   updatedAt: string;
 };
 
+export type EmailSignUpResult = {
+  email: string;
+  confirmationRequired: boolean;
+};
+
 type AuthValue = {
   configured: boolean;
   ready: boolean;
@@ -33,7 +38,15 @@ type AuthValue = {
   library: Media[];
   continueWatching: ContinueWatchingItem[];
   authError: string | null;
-  signInWithGoogle: () => Promise<void>;
+  passwordRecovery: boolean;
+  signUpWithEmail: (name: string, email: string, password: string, staySignedIn: boolean) => Promise<EmailSignUpResult>;
+  signInWithEmail: (email: string, password: string, staySignedIn: boolean) => Promise<void>;
+  signInWithGoogle: (staySignedIn?: boolean) => Promise<void>;
+  signInWithApple: (staySignedIn?: boolean) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  changePassword: (newPassword: string, currentPassword?: string) => Promise<void>;
+  finishPasswordRecovery: () => void;
+  clearAuthError: () => void;
   signOut: () => Promise<void>;
   selectProfile: (profile: ViewerProfile) => Promise<void>;
   createProfile: (name: string, isKids: boolean) => Promise<ViewerProfile | null>;
@@ -43,6 +56,19 @@ type AuthValue = {
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
+const STAY_SIGNED_IN_KEY = "krzene-stay-signed-in";
+const BROWSER_SESSION_COOKIE = "krzene-browser-session";
+
+function hasBrowserSessionMarker() {
+  return document.cookie.split(";").some((item) => item.trim() === `${BROWSER_SESSION_COOKIE}=1`);
+}
+
+function rememberSessionPreference(staySignedIn: boolean) {
+  window.localStorage.setItem(STAY_SIGNED_IN_KEY, String(staySignedIn));
+  document.cookie = staySignedIn
+    ? `${BROWSER_SESSION_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`
+    : `${BROWSER_SESSION_COOKIE}=1; Path=/; SameSite=Lax`;
+}
 
 function fromRow(row: Record<string, unknown>): ViewerProfile {
   return {
@@ -63,6 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [library, setLibrary] = useState<Media[]>([]);
   const [continueWatching, setContinueWatching] = useState<ContinueWatchingItem[]>([]);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const loadLibrary = useCallback(async (profile: ViewerProfile) => {
     const supabase = createClient();
@@ -114,7 +141,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let nextProfiles: ViewerProfile[] = (data ?? []).map((row: Record<string, unknown>) => fromRow(row));
     if (!nextProfiles.length) {
       const suggestedName =
-        nextUser.user_metadata?.full_name || nextUser.user_metadata?.name || nextUser.email?.split("@")[0] || "Profile";
+        nextUser.user_metadata?.full_name ||
+        nextUser.user_metadata?.name ||
+        nextUser.user_metadata?.user_name ||
+        nextUser.user_metadata?.preferred_username ||
+        nextUser.email?.split("@")[0] ||
+        "Profile";
       const { data: created, error: createError } = await supabase
         .from("viewer_profiles")
         .insert({
@@ -150,6 +182,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let unsubscribe = () => {};
 
     void (async () => {
+      const url = new URL(window.location.href);
+      const recoveryFromUrl = url.searchParams.get("password-recovery") === "1";
+      if (recoveryFromUrl) {
+        setPasswordRecovery(true);
+        document.cookie = `${BROWSER_SESSION_COOKIE}=1; Path=/; SameSite=Lax`;
+        url.searchParams.delete("password-recovery");
+        window.history.replaceState(window.history.state, "", url.toString());
+      }
+      const sessionShouldExpire =
+        window.localStorage.getItem(STAY_SIGNED_IN_KEY) === "false" &&
+        !hasBrowserSessionMarker();
+      if (sessionShouldExpire && !recoveryFromUrl) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
       const { data }: { data: { user: User | null } } = await supabase.auth.getUser();
       if (cancelled) return;
       setUser(data.user);
@@ -158,7 +204,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       setReady(true);
 
-      const { data: listener } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+      const { data: listener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+        if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
         const nextUser = session?.user ?? null;
         setUser(nextUser);
         setAuthError(null);
@@ -179,22 +226,117 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [hydrateProfiles]);
 
-  const signInWithGoogle = useCallback(async () => {
+  const signUpWithEmail = useCallback(async (
+    name: string,
+    email: string,
+    password: string,
+    staySignedIn: boolean,
+  ): Promise<EmailSignUpResult> => {
+    const supabase = createClient();
+    if (!supabase) throw new Error("Add the Supabase environment variables to enable email sign-up.");
+    rememberSessionPreference(staySignedIn);
+    setAuthError(null);
+    const normalizedEmail = email.trim().toLowerCase();
+    const siteUrl = window.location.origin.replace(/\/$/, "");
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password,
+      options: {
+        emailRedirectTo: `${siteUrl}/auth/callback?next=/`,
+        data: { full_name: name.trim(), name: name.trim() },
+      },
+    });
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+    return { email: normalizedEmail, confirmationRequired: !data.session };
+  }, []);
+
+  const signInWithEmail = useCallback(async (
+    email: string,
+    password: string,
+    staySignedIn: boolean,
+  ) => {
+    const supabase = createClient();
+    if (!supabase) throw new Error("Add the Supabase environment variables to enable email sign-in.");
+    rememberSessionPreference(staySignedIn);
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+  }, []);
+
+  const signInWithProvider = useCallback(async (provider: "google" | "apple", staySignedIn = true) => {
     const supabase = createClient();
     if (!supabase) {
-      setAuthError("Add the Supabase environment variables to enable Google sign-in.");
-      return;
+      throw new Error(`Add the Supabase environment variables to enable ${provider} sign-in.`);
     }
+    rememberSessionPreference(staySignedIn);
+    setAuthError(null);
     // OAuth must return to the exact origin that created Supabase's PKCE
     // verifier cookie. A build-time URL can accidentally send custom-domain
     // users to the Vercel domain, where that cookie does not exist.
     const siteUrl = window.location.origin.replace(/\/$/, "");
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${siteUrl}/auth/callback?next=/`, queryParams: { prompt: "select_account" } },
+      provider,
+      options: {
+        redirectTo: `${siteUrl}/auth/callback?next=/`,
+        ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
+      },
     });
-    if (error) setAuthError(error.message);
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
   }, []);
+
+  const signInWithGoogle = useCallback(
+    (staySignedIn = true) => signInWithProvider("google", staySignedIn),
+    [signInWithProvider],
+  );
+
+  const signInWithApple = useCallback(
+    (staySignedIn = true) => signInWithProvider("apple", staySignedIn),
+    [signInWithProvider],
+  );
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const supabase = createClient();
+    if (!supabase) throw new Error("Add the Supabase environment variables to reset a password.");
+    setAuthError(null);
+    const siteUrl = window.location.origin.replace(/\/$/, "");
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo: `${siteUrl}/auth/callback?next=/?password-recovery=1` },
+    );
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+  }, []);
+
+  const changePassword = useCallback(async (newPassword: string, currentPassword?: string) => {
+    const supabase = createClient();
+    if (!supabase) throw new Error("Add the Supabase environment variables to change a password.");
+    setAuthError(null);
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+      ...(currentPassword ? { current_password: currentPassword } : {}),
+    });
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+  }, []);
+
+  const finishPasswordRecovery = useCallback(() => setPasswordRecovery(false), []);
+  const clearAuthError = useCallback(() => setAuthError(null), []);
 
   const signOut = useCallback(async () => {
     const supabase = createClient();
@@ -316,14 +458,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     library,
     continueWatching,
     authError,
+    passwordRecovery,
+    signUpWithEmail,
+    signInWithEmail,
     signInWithGoogle,
+    signInWithApple,
+    requestPasswordReset,
+    changePassword,
+    finishPasswordRecovery,
+    clearAuthError,
     signOut,
     selectProfile,
     createProfile,
     deleteProfile,
     toggleLibrary,
     saveWatchProgress,
-  }), [activeProfile, authError, continueWatching, createProfile, deleteProfile, library, profiles, ready, saveWatchProgress, selectProfile, signInWithGoogle, signOut, toggleLibrary, user]);
+  }), [activeProfile, authError, changePassword, clearAuthError, continueWatching, createProfile, deleteProfile, finishPasswordRecovery, library, passwordRecovery, profiles, ready, requestPasswordReset, saveWatchProgress, selectProfile, signInWithApple, signInWithEmail, signInWithGoogle, signOut, signUpWithEmail, toggleLibrary, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

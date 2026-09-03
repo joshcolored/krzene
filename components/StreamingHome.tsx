@@ -15,6 +15,7 @@ import { AdSenseUnit } from "./AdSenseUnit";
 import { useAuth, type ContinueWatchingItem } from "./AuthProvider";
 import { CatalogSponsorModal } from "./CatalogSponsorModal";
 import { ProfileChooser } from "./ProfileChooser";
+import { AuthDialog } from "./AuthDialog";
 
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
 type NavItem = (typeof NAV_ITEMS)[number];
@@ -440,7 +441,6 @@ function CatalogHome({
   const [searching, setSearching] = useState(false);
   const [showProfiles, setShowProfiles] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
   const searchToken = useRef(0);
   const activeLocale = catalogLocale(localeCode);
   const {
@@ -450,7 +450,7 @@ function CatalogHome({
     library: savedItems,
     continueWatching,
     authError,
-    signInWithGoogle,
+    passwordRecovery,
     toggleLibrary,
   } = useAuth();
 
@@ -507,16 +507,6 @@ function CatalogHome({
   useEffect(() => {
     if (!user && active === "Library") setActive("Home");
   }, [active, user]);
-
-  const beginGoogleSignIn = async () => {
-    if (signingIn) return;
-    setSigningIn(true);
-    try {
-      await signInWithGoogle();
-    } finally {
-      setSigningIn(false);
-    }
-  };
 
   const changeLanguage = (nextCode: string) => {
     document.cookie = `krzene-language=${encodeURIComponent(nextCode)}; Max-Age=31536000; Path=/; SameSite=Lax`;
@@ -849,103 +839,12 @@ function CatalogHome({
         onClose={() => setShowProfiles(false)}
       />
 
-      <CatalogSponsorModal enabled={adsEnabled && !showProfiles && !showSignIn} />
+      <CatalogSponsorModal enabled={adsEnabled && !showProfiles && !showSignIn && !passwordRecovery} />
 
-      {showSignIn && !user && (
-        <div
-          className="ui-modal-enter fixed inset-0 z-100 flex min-h-dvh items-center justify-center bg-black/75 px-5 py-10 backdrop-blur-xl"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !signingIn)
-              setShowSignIn(false);
-          }}
-        >
-          <section
-            className="ui-modal-panel-enter relative w-full max-w-[430px] rounded-[24px] border border-white/10 bg-[linear-gradient(145deg,#191919,#0d0d0d)] px-8 py-9 text-center shadow-[0_35px_110px_rgba(0,0,0,.75)] max-[560px]:rounded-[20px] max-[560px]:px-5 max-[560px]:py-7"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="sign-in-title"
-          >
-            <button
-              type="button"
-              className="absolute top-4 right-4 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/9 bg-white/6 text-[#aaa6a0] transition hover:bg-white/13 hover:text-white disabled:cursor-wait disabled:opacity-45"
-              onClick={() => setShowSignIn(false)}
-              disabled={signingIn}
-              aria-label="Close sign in"
-            >
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <path d="M6 6l12 12M18 6 6 18" />
-              </svg>
-            </button>
-
-            <img
-              className="mx-auto mb-6 h-14 w-14 rounded-[17px]"
-              src="/krzene-mark.svg"
-              alt=""
-            />
-            <h2
-              id="sign-in-title"
-              className="font-display text-[28px] leading-tight font-extrabold tracking-[-.035em]"
-            >
-              Sign in to Krzene
-            </h2>
-            <p className="mx-auto mt-3 mb-7 max-w-[330px] text-sm leading-relaxed text-[#96918a]">
-              Keep your profiles, library, and viewing progress synced across
-              devices.
-            </p>
-
-            <button
-              type="button"
-              className="flex min-h-[52px] w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-[#dadce0] bg-white px-5 font-bold text-[#202124] transition hover:bg-[#f7f8f8] active:scale-[.985] disabled:cursor-wait disabled:opacity-75"
-              onClick={() => void beginGoogleSignIn()}
-              disabled={signingIn}
-            >
-              {signingIn ? (
-                <span
-                  className="h-5 w-5 animate-spin rounded-full border-2 border-black/20 border-t-[#4285f4]"
-                  aria-hidden="true"
-                />
-              ) : (
-                <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="#4285F4"
-                    d="M21.6 12.23c0-.72-.06-1.42-.19-2.09H12v3.96h5.38a4.6 4.6 0 0 1-2 3.02v2.57h3.24c1.9-1.75 2.98-4.33 2.98-7.46Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 22c2.7 0 4.97-.9 6.62-2.43l-3.24-2.57c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.65A10 10 0 0 0 12 22Z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M6.39 13.83A6 6 0 0 1 6.08 12c0-.64.11-1.26.31-1.83V7.52H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.48l3.35-2.65Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 6.04c1.47 0 2.79.51 3.83 1.5l2.87-2.87A9.65 9.65 0 0 0 12 2a10 10 0 0 0-8.96 5.52l3.35 2.65C7.18 7.8 9.39 6.04 12 6.04Z"
-                  />
-                </svg>
-              )}
-              <span>{signingIn ? "Connecting…" : "Continue with Google"}</span>
-            </button>
-
-            {authError && (
-              <p className="mt-4 text-xs leading-relaxed text-[#ff8b93]">
-                {authError}
-              </p>
-            )}
-            <p className="mt-6 text-[11px] leading-relaxed text-[#66625d]">
-              Google is only used to authenticate your Krzene account.
-            </p>
-          </section>
-        </div>
-      )}
+      <AuthDialog
+        open={(showSignIn && !user) || passwordRecovery}
+        onClose={() => setShowSignIn(false)}
+      />
 
       <div
         className={`grid transition-[grid-template-rows,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${featureFilmHidden ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}

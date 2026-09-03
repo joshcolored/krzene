@@ -40,30 +40,41 @@ class WatchScreen extends StatefulWidget {
   State<WatchScreen> createState() => _WatchScreenState();
 }
 
-class _WatchScreenState extends State<WatchScreen> {
+class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   late final WebViewController web;
   late Future<MediaDetail> detailFuture;
   int sourceIndex = 0;
   int season = 1;
   int episode = 1;
   Timer? loadTimer;
+  Timer? progressTimer;
   String? notice;
   double position = 0;
   double duration = 0;
   int savedProgressBucket = 0;
   bool resumeSent = false;
   bool playerPageReady = false;
+  bool appActive = true;
+  bool? playerReportedPlaying;
+  DateTime? lastProgressTick;
+  DateTime? lastExactProgressAt;
   late bool immersive;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     season = widget.resume?.season ?? 1;
     episode = widget.resume?.episode ?? 1;
     position = widget.resume?.position ?? 0;
     duration = widget.resume?.duration ?? 0;
     immersive = defaultTargetPlatform == TargetPlatform.android;
     savedProgressBucket = (position / 10).floor();
+    lastProgressTick = DateTime.now();
+    progressTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _tickProgress(),
+    );
     detailFuture = widget.controller.catalogApi.detail(
       widget.media,
       widget.controller.language,
@@ -81,6 +92,7 @@ class _WatchScreenState extends State<WatchScreen> {
           onPageFinished: (_) {
             loadTimer?.cancel();
             playerPageReady = true;
+            lastProgressTick = DateTime.now();
             _installPlaybackBridge();
             _preparePlayerPage();
             _scheduleMediaAvailabilityCheck();
@@ -102,7 +114,7 @@ class _WatchScreenState extends State<WatchScreen> {
   }
 
   Future<void> _installPlaybackBridge() async {
-    if (playbackSources[sourceIndex].provider != 'vidsrc') return;
+    final resumeAt = _resumePositionForSelection().round();
     try {
       await web.runJavaScript('''
         if (!window.__krzeneBridgeInstalled) {
@@ -116,6 +128,33 @@ class _WatchScreenState extends State<WatchScreen> {
               );
             } catch (_) {}
           });
+
+          const resumeAt = $resumeAt;
+          let resumeApplied = resumeAt < 5;
+          const reportVideos = function (root) {
+            try {
+              root.querySelectorAll('video').forEach(function (video) {
+                if (!resumeApplied && video.readyState > 0) {
+                  video.currentTime = Math.min(resumeAt, video.duration || resumeAt);
+                  resumeApplied = true;
+                }
+                KrzeneBridge.postMessage(JSON.stringify({
+                  type: 'KRZENE_PROGRESS',
+                  data: {
+                    position: video.currentTime || 0,
+                    duration: Number.isFinite(video.duration) ? video.duration : 0,
+                    paused: video.paused
+                  }
+                }));
+              });
+              root.querySelectorAll('iframe').forEach(function (frame) {
+                try {
+                  if (frame.contentDocument) reportVideos(frame.contentDocument);
+                } catch (_) {}
+              });
+            } catch (_) {}
+          };
+          window.setInterval(function () { reportVideos(document); }, 1500);
         }
       ''');
     } catch (_) {
@@ -231,18 +270,34 @@ class _WatchScreenState extends State<WatchScreen> {
   }
 
   void _handleBridgeMessage(String raw) {
-    if (playbackSources[sourceIndex].provider != 'vidsrc') return;
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! Map || decoded['type'] != 'PLAYER_EVENT') return;
+      if (decoded is! Map) return;
       final data = decoded['data'];
       if (data is! Map) return;
-      final nextPosition = _seconds(data['player_progress']);
-      final nextDuration = _seconds(data['player_duration']);
+      final type = decoded['type'];
+      if (type != 'PLAYER_EVENT' && type != 'KRZENE_PROGRESS') return;
+      final nextPosition = _seconds(
+        type == 'PLAYER_EVENT' ? data['player_progress'] : data['position'],
+      );
+      final nextDuration = _seconds(
+        type == 'PLAYER_EVENT' ? data['player_duration'] : data['duration'],
+      );
       if (nextPosition == null) return;
 
       position = nextPosition;
       if (nextDuration != null && nextDuration > 0) duration = nextDuration;
+      lastExactProgressAt = DateTime.now();
+      lastProgressTick = lastExactProgressAt;
+      if (type == 'PLAYER_EVENT') {
+        final status = data['player_status']?.toString().toLowerCase();
+        if (status == 'playing') playerReportedPlaying = true;
+        if (status == 'paused' || status == 'completed') {
+          playerReportedPlaying = false;
+        }
+      } else if (type == 'KRZENE_PROGRESS') {
+        playerReportedPlaying = data['paused'] == false;
+      }
 
       if (!resumeSent && (widget.resume?.position ?? 0) >= 5) {
         resumeSent = true;
@@ -252,14 +307,44 @@ class _WatchScreenState extends State<WatchScreen> {
         );
       }
 
-      final bucket = (position / 10).floor();
-      if (bucket > savedProgressBucket) {
-        savedProgressBucket = bucket;
-        unawaited(_persistProgress());
-      }
+      _persistIfNeeded();
     } catch (_) {
       // Provider messages are untrusted and can use unrelated payload formats.
     }
+  }
+
+  void _tickProgress() {
+    final now = DateTime.now();
+    final previousTick = lastProgressTick ?? now;
+    lastProgressTick = now;
+    if (!playerPageReady || !appActive) return;
+
+    final exactIsFresh =
+        lastExactProgressAt != null &&
+        now.difference(lastExactProgressAt!) < const Duration(seconds: 8);
+    if (exactIsFresh && playerReportedPlaying == false) return;
+
+    final elapsed = now.difference(previousTick).inMilliseconds / 1000;
+    if (elapsed > 0 && elapsed < 3) position += elapsed;
+    _persistIfNeeded();
+  }
+
+  void _persistIfNeeded() {
+    final bucket = (position / 10).floor();
+    if (bucket > savedProgressBucket) {
+      savedProgressBucket = bucket;
+      unawaited(_persistProgress());
+    }
+  }
+
+  double _resumePositionForSelection() {
+    final resume = widget.resume;
+    if (resume == null) return 0;
+    if (widget.media.isSeries &&
+        ((resume.season ?? 1) != season || (resume.episode ?? 1) != episode)) {
+      return 0;
+    }
+    return resume.position;
   }
 
   double? _seconds(Object? value) {
@@ -300,7 +385,7 @@ class _WatchScreenState extends State<WatchScreen> {
   String _embedUrl() {
     final source = playbackSources[sourceIndex];
     final id = widget.media.tmdbId;
-    final resume = (widget.resume?.position ?? 0).floor();
+    final resume = _resumePositionForSelection().floor();
     if (source.provider == 'cinesrc') {
       final path = widget.media.isSeries ? '/embed/tv/$id' : '/embed/movie/$id';
       return Uri.parse('${source.host}$path')
@@ -338,6 +423,7 @@ class _WatchScreenState extends State<WatchScreen> {
 
   void _startWatchdog() {
     playerPageReady = false;
+    lastProgressTick = DateTime.now();
     loadTimer?.cancel();
     loadTimer = Timer(const Duration(seconds: 20), _showSourceUnavailable);
   }
@@ -388,6 +474,28 @@ class _WatchScreenState extends State<WatchScreen> {
       sourceIndex = index;
       notice = null;
       resumeSent = false;
+      playerPageReady = false;
+      playerReportedPlaying = null;
+      lastExactProgressAt = null;
+      lastProgressTick = DateTime.now();
+    });
+    web.loadRequest(Uri.parse(_embedUrl()));
+  }
+
+  void _selectEpisode({required int nextSeason, required int nextEpisode}) {
+    if (position >= 5) unawaited(_persistProgress());
+    setState(() {
+      season = nextSeason;
+      episode = nextEpisode;
+      position = 0;
+      duration = 0;
+      savedProgressBucket = 0;
+      notice = null;
+      resumeSent = false;
+      playerPageReady = false;
+      playerReportedPlaying = null;
+      lastExactProgressAt = null;
+      lastProgressTick = DateTime.now();
     });
     web.loadRequest(Uri.parse(_embedUrl()));
   }
@@ -414,8 +522,20 @@ class _WatchScreenState extends State<WatchScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasActive = appActive;
+    appActive = state == AppLifecycleState.resumed;
+    lastProgressTick = DateTime.now();
+    if (wasActive && !appActive && position >= 5) {
+      unawaited(_persistProgress());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     loadTimer?.cancel();
+    progressTimer?.cancel();
     if (position >= 5) unawaited(_persistProgress());
     unawaited(_restoreSystemUi());
     super.dispose();
@@ -524,13 +644,8 @@ class _WatchScreenState extends State<WatchScreen> {
                     FutureBuilder<MediaDetail>(
                       future: detailFuture,
                       builder: (context, snapshot) => PopupMenuButton<int>(
-                        onSelected: (value) {
-                          setState(() {
-                            season = value;
-                            episode = 1;
-                          });
-                          web.loadRequest(Uri.parse(_embedUrl()));
-                        },
+                        onSelected: (value) =>
+                            _selectEpisode(nextSeason: value, nextEpisode: 1),
                         itemBuilder: (_) => [
                           for (final item
                               in snapshot.data?.seasons ?? const <SeasonInfo>[])
@@ -549,10 +664,10 @@ class _WatchScreenState extends State<WatchScreen> {
                     _ToolChip(
                       icon: Icons.skip_next,
                       label: 'Episode $episode',
-                      onTap: () {
-                        setState(() => episode++);
-                        web.loadRequest(Uri.parse(_embedUrl()));
-                      },
+                      onTap: () => _selectEpisode(
+                        nextSeason: season,
+                        nextEpisode: episode + 1,
+                      ),
                     ),
                 ],
               ),

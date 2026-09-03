@@ -165,13 +165,107 @@ class CatalogApi {
   );
 }
 
+class EmailSignUpResult {
+  const EmailSignUpResult({
+    required this.email,
+    required this.confirmationRequired,
+  });
+
+  final String email;
+  final bool confirmationRequired;
+}
+
 class AccountRepository {
+  static const _staySignedInKey = 'stay_signed_in_v1';
+
   SupabaseClient? get _client =>
       AppConfig.supabaseReady ? Supabase.instance.client : null;
   User? get user => _client?.auth.currentUser;
 
+  bool get usesEmailPassword =>
+      user?.appMetadata['provider'] == 'email' ||
+      (user?.identities ?? const <UserIdentity>[]).any(
+        (identity) => identity.provider == 'email',
+      );
+
   Stream<AuthState> get authChanges =>
       _client?.auth.onAuthStateChange ?? const Stream<AuthState>.empty();
+
+  Future<bool> staySignedIn() async =>
+      (await SharedPreferences.getInstance()).getBool(_staySignedInKey) ?? true;
+
+  Future<void> setStaySignedIn(bool value) async {
+    await (await SharedPreferences.getInstance()).setBool(
+      _staySignedInKey,
+      value,
+    );
+  }
+
+  Future<void> prepareSession({bool passwordRecovery = false}) async {
+    final client = _client;
+    if (client == null || passwordRecovery || await staySignedIn()) return;
+    if (client.auth.currentSession != null) {
+      await client.auth.signOut(scope: SignOutScope.local);
+    }
+  }
+
+  Future<EmailSignUpResult> signUpWithEmail({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final client = _client;
+    if (client == null) throw Exception('Supabase is not configured.');
+    final normalizedName = name.trim();
+    final normalizedEmail = email.trim().toLowerCase();
+    final response = await client.auth.signUp(
+      email: normalizedEmail,
+      password: password,
+      emailRedirectTo: 'site.krzene.app://login-callback',
+      data: {'full_name': normalizedName, 'name': normalizedName},
+    );
+    return EmailSignUpResult(
+      email: normalizedEmail,
+      confirmationRequired: response.session == null,
+    );
+  }
+
+  Future<void> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final client = _client;
+    if (client == null) throw Exception('Supabase is not configured.');
+    await client.auth.signInWithPassword(
+      email: email.trim().toLowerCase(),
+      password: password,
+    );
+  }
+
+  Future<void> requestPasswordReset(String email) async {
+    final client = _client;
+    if (client == null) throw Exception('Supabase is not configured.');
+    await client.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      redirectTo: 'site.krzene.app://reset-password',
+    );
+  }
+
+  Future<void> changePassword({
+    required String newPassword,
+    String? currentPassword,
+  }) async {
+    final client = _client;
+    if (client == null) throw Exception('Supabase is not configured.');
+    await client.auth.updateUser(
+      UserAttributes(
+        password: newPassword,
+        currentPassword: currentPassword?.isEmpty == true
+            ? null
+            : currentPassword,
+      ),
+    );
+  }
 
   Future<void> signInWithGoogle() async {
     final client = _client;
@@ -292,16 +386,43 @@ class AccountRepository {
       );
     }
 
+    await _clearLocalWatchProgress();
+
     // The account no longer exists on the server. Clear the cached device
     // session without making a second request with the now-invalid token.
     await client.auth.signOut(scope: SignOutScope.local);
   }
 
   Future<List<ViewerProfile>> profiles() async {
-    final rows = await _client!
+    var rows = await _client!
         .from('viewer_profiles')
         .select()
         .order('created_at');
+    if ((rows as List).isEmpty && user != null) {
+      final metadata = user!.userMetadata ?? const <String, dynamic>{};
+      final suggestedName =
+          [
+                metadata['full_name'],
+                metadata['name'],
+                metadata['user_name'],
+                user!.email?.split('@').first,
+                'Viewer',
+              ]
+              .whereType<String>()
+              .map((value) => value.trim())
+              .firstWhere((value) => value.isNotEmpty, orElse: () => 'Viewer');
+      final avatar = metadata['avatar_url'] ?? metadata['picture'];
+      await _client!.from('viewer_profiles').insert({
+        'owner_id': user!.id,
+        'name': suggestedName.substring(0, suggestedName.length.clamp(0, 32)),
+        if (avatar is String && avatar.trim().isNotEmpty)
+          'avatar_url': avatar.trim(),
+      });
+      rows = await _client!
+          .from('viewer_profiles')
+          .select()
+          .order('created_at');
+    }
     return (rows as List)
         .map((row) => ViewerProfile.fromJson(Map<String, dynamic>.from(row)))
         .toList();
@@ -339,6 +460,8 @@ class AccountRepository {
         .delete()
         .eq('id', profileId)
         .eq('owner_id', user!.id);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_watchProgressCacheKey(profileId));
   }
 
   Future<List<Media>> library(String profileId) async {
@@ -356,15 +479,23 @@ class AccountRepository {
   }
 
   Future<List<ContinueItem>> continueWatching(String profileId) async {
-    final rows = await _client!
-        .from('watch_progress')
-        .select('media,position,duration,season,episode')
-        .eq('profile_id', profileId)
-        .order('updated_at', ascending: false)
-        .limit(20);
-    return (rows as List)
-        .map((row) => ContinueItem.fromJson(Map<String, dynamic>.from(row)))
-        .toList();
+    final localItems = await _readLocalWatchProgress(profileId);
+    try {
+      final rows = await _client!
+          .from('watch_progress')
+          .select('media,position,duration,season,episode,updated_at')
+          .eq('profile_id', profileId)
+          .order('updated_at', ascending: false)
+          .limit(20);
+      final remoteItems = (rows as List)
+          .map((row) => ContinueItem.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+      final merged = _mergeWatchProgress(localItems, remoteItems);
+      await _writeLocalWatchProgress(profileId, merged);
+      return merged;
+    } catch (_) {
+      return localItems;
+    }
   }
 
   Future<void> setLibrary({
@@ -401,6 +532,20 @@ class AccountRepository {
     final currentUser = user;
     if (client == null || currentUser == null) return;
 
+    final updatedAt = DateTime.now().toUtc();
+    await _saveLocalWatchProgress(
+      profile.id,
+      ContinueItem(
+        media: media,
+        position: position,
+        duration: duration,
+        season: season,
+        episode: episode,
+        updatedAt: updatedAt,
+      ),
+      completed: completed,
+    );
+
     if (completed) {
       await client
           .from('watch_progress')
@@ -419,7 +564,90 @@ class AccountRepository {
       'duration': duration,
       'season': season,
       'episode': episode,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     }, onConflict: 'profile_id,media_key');
+  }
+
+  String _watchProgressCacheKey(String profileId) {
+    final userId = user?.id;
+    if (userId == null) throw Exception('Sign in to access watch progress.');
+    return 'watch_progress_v2_${userId}_$profileId';
+  }
+
+  Future<List<ContinueItem>> _readLocalWatchProgress(String profileId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = prefs.getStringList(_watchProgressCacheKey(profileId));
+    if (encoded == null) return [];
+    final items = <ContinueItem>[];
+    for (final value in encoded) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) {
+          items.add(ContinueItem.fromJson(Map<String, dynamic>.from(decoded)));
+        }
+      } catch (_) {
+        // Ignore a damaged cache entry; the remote copy can replace it.
+      }
+    }
+    return items;
+  }
+
+  Future<void> _writeLocalWatchProgress(
+    String profileId,
+    List<ContinueItem> items,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _watchProgressCacheKey(profileId),
+      items.take(20).map((item) => jsonEncode(item.toJson())).toList(),
+    );
+  }
+
+  Future<void> _saveLocalWatchProgress(
+    String profileId,
+    ContinueItem item, {
+    required bool completed,
+  }) async {
+    final current = await _readLocalWatchProgress(profileId);
+    final remaining = current
+        .where((entry) => entry.media.key != item.media.key)
+        .toList();
+    await _writeLocalWatchProgress(
+      profileId,
+      completed ? remaining : [item, ...remaining],
+    );
+  }
+
+  List<ContinueItem> _mergeWatchProgress(
+    List<ContinueItem> local,
+    List<ContinueItem> remote,
+  ) {
+    final byMedia = <String, ContinueItem>{};
+    for (final item in [...remote, ...local]) {
+      final previous = byMedia[item.media.key];
+      final previousDate = previous?.updatedAt;
+      final itemDate = item.updatedAt;
+      if (previous == null ||
+          (itemDate != null &&
+              (previousDate == null || itemDate.isAfter(previousDate)))) {
+        byMedia[item.media.key] = item;
+      }
+    }
+    final merged = byMedia.values.toList()
+      ..sort(
+        (a, b) => (b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      );
+    return merged.take(20).toList();
+  }
+
+  Future<void> _clearLocalWatchProgress() async {
+    final userId = user?.id;
+    if (userId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final prefix = 'watch_progress_v2_${userId}_';
+    for (final key in prefs.getKeys().where((key) => key.startsWith(prefix))) {
+      await prefs.remove(key);
+    }
   }
 }

@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config.dart';
 import 'models.dart';
@@ -16,6 +18,7 @@ class KrzeneController extends ChangeNotifier {
   final CatalogApi catalogApi;
   final AccountRepository account;
   StreamSubscription? _authSubscription;
+  StreamSubscription<Uri>? _linkSubscription;
 
   HomeCatalog? catalog;
   String language = 'en-US';
@@ -27,6 +30,7 @@ class KrzeneController extends ChangeNotifier {
   List<Media> library = [];
   List<ContinueItem> continueWatching = [];
   bool _adultProfilesUnlocked = false;
+  bool passwordRecoveryMode = false;
 
   bool get signedIn => account.user != null;
   bool get kidsMode => activeProfile?.isKids == true;
@@ -39,9 +43,32 @@ class KrzeneController extends ChangeNotifier {
   Future<void> initialize() async {
     final prefs = await SharedPreferences.getInstance();
     language = prefs.getString('language') ?? 'en-US';
-    _authSubscription = account.authChanges.listen((_) => refreshAccount());
+    final appLinks = AppLinks();
+    final initialLink = await appLinks.getInitialLink();
+    passwordRecoveryMode = _isPasswordRecoveryLink(initialLink);
+    await account.prepareSession(passwordRecovery: passwordRecoveryMode);
+    _authSubscription = account.authChanges.listen((state) {
+      if (state.event == AuthChangeEvent.passwordRecovery) {
+        passwordRecoveryMode = true;
+      }
+      unawaited(refreshAccount());
+    });
+    _linkSubscription = appLinks.uriLinkStream.listen((uri) {
+      if (_isPasswordRecoveryLink(uri)) {
+        passwordRecoveryMode = true;
+        notifyListeners();
+      }
+    });
     await Future.wait([loadCatalog(), refreshAccount()]);
     initialized = true;
+    notifyListeners();
+  }
+
+  bool _isPasswordRecoveryLink(Uri? uri) =>
+      uri?.scheme == 'site.krzene.app' && uri?.host == 'reset-password';
+
+  void finishPasswordRecovery() {
+    passwordRecoveryMode = false;
     notifyListeners();
   }
 
@@ -178,7 +205,8 @@ class KrzeneController extends ChangeNotifier {
     await account.deleteProfile(profile.id);
     profiles = profiles.where((item) => item.id != profile.id).toList();
     if (activeProfile?.id == profile.id) {
-      activeProfile = profiles.where((item) => item.isKids).firstOrNull ??
+      activeProfile =
+          profiles.where((item) => item.isKids).firstOrNull ??
           profiles.firstOrNull;
       _adultProfilesUnlocked = activeProfile != null && !hasKidsProfile;
       final prefs = await SharedPreferences.getInstance();
@@ -217,6 +245,7 @@ class KrzeneController extends ChangeNotifier {
         duration: duration,
         season: season,
         episode: episode,
+        updatedAt: DateTime.now().toUtc(),
       );
       continueWatching = [
         next,
@@ -244,6 +273,7 @@ class KrzeneController extends ChangeNotifier {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    _linkSubscription?.cancel();
     super.dispose();
   }
 }

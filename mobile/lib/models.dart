@@ -189,12 +189,14 @@ class ContinueItem {
     required this.duration,
     this.season,
     this.episode,
+    this.updatedAt,
   });
   final Media media;
   final double position;
   final double duration;
   final int? season;
   final int? episode;
+  final DateTime? updatedAt;
 
   factory ContinueItem.fromJson(Map<String, dynamic> json) => ContinueItem(
     media: Media.fromJson(json['media'] as Map<String, dynamic>),
@@ -202,5 +204,15 @@ class ContinueItem {
     duration: (json['duration'] as num?)?.toDouble() ?? 0,
     season: (json['season'] as num?)?.toInt(),
     episode: (json['episode'] as num?)?.toInt(),
+    updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
   );
+
+  Map<String, dynamic> toJson() => {
+    'media': media.toJson(),
+    'position': position,
+    'duration': duration,
+    'season': season,
+    'episode': episode,
+    if (updatedAt != null) 'updated_at': updatedAt!.toUtc().toIso8601String(),
+  };
 }

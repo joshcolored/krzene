@@ -83,12 +83,44 @@ already declared in `android/app/src/main/AndroidManifest.xml` and
 Complete these dashboard settings once:
 
 1. In **Supabase Dashboard → Authentication → URL Configuration**, add
-   `site.krzene.app://login-callback` to **Redirect URLs**. It must match
+   `site.krzene.app://login-callback` and
+   `site.krzene.app://reset-password` to **Redirect URLs**. They must match
    exactly; otherwise Supabase falls back to the website Site URL.
 2. In **Supabase Dashboard → Authentication → Providers → Google**, keep the
    Google Web client ID and secret configured.
 3. In Google Auth Platform, keep the Supabase callback URL shown on that
    provider page registered as an authorized redirect URI for the Web client.
+
+## Email and password authentication
+
+The mobile sign-in screen also supports creating an account with a name, email,
+and password and signing in with those credentials. The name is stored in
+Supabase Auth user metadata as `full_name`. Apply
+`supabase/migrations/20260903000000_email_auth_initial_profile.sql` and
+`supabase/migrations/20260903010000_all_auth_initial_profiles.sql` so every new
+Supabase account receives an initial viewer profile. The trigger supports
+email/password, Google, and Apple accounts.
+
+In **Supabase Dashboard → Authentication → Sign In / Providers → Email**:
+
+1. Enable the Email provider.
+2. Keep **Confirm email** enabled for production.
+3. In **URL Configuration**, keep `site.krzene.app://login-callback` in the
+   Redirect URLs list so confirmation links return to the mobile app. Also add
+   `site.krzene.app://reset-password` for password recovery links.
+4. Customize the confirmation email under **Authentication → Email Templates**
+   if desired.
+5. Under **Authentication → Email Templates → Security notifications**, enable
+   **Password changed**. Supabase then emails the user after either the mobile
+   or web client successfully updates their password.
+
+The web reset flow returns through `/auth/callback` and then opens the password
+form. Add `https://krzene.site/**` to the Supabase Redirect URLs list, along
+with any local or preview origins used for testing.
+
+Run every migration in chronological order in the Supabase SQL Editor before
+testing a newly registered account. The app never stores a plaintext password;
+password verification and storage are handled by Supabase Auth.
 
 The app deliberately requests account selection once. It does not retry the
 picker after a failure, so a single tap cannot produce duplicate Google account

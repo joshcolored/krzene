@@ -32,6 +32,8 @@ class _EditableAccount extends _SignedInAccount {
   final deletedProfileIds = <String>[];
   var accountDeleted = false;
   String? parentalPin;
+  String? changedPassword;
+  String? suppliedCurrentPassword;
 
   @override
   Future<ViewerProfile> createProfile(String name, {bool kids = false}) async =>
@@ -71,10 +73,90 @@ class _EditableAccount extends _SignedInAccount {
   Future<bool> verifyParentalPin(String pin) async => parentalPin == pin;
 
   @override
+  Future<void> changePassword({
+    required String newPassword,
+    String? currentPassword,
+  }) async {
+    changedPassword = newPassword;
+    suppliedCurrentPassword = currentPassword;
+  }
+
+  @override
   Future<List<Media>> library(String profileId) async => [];
 
   @override
   Future<List<ContinueItem>> continueWatching(String profileId) async => [];
+}
+
+class _EmailAccount extends _EditableAccount {
+  String? registeredName;
+  String? registeredEmail;
+  String? registeredPassword;
+  String? signedInEmail;
+  String? signedInPassword;
+  String? resetEmail;
+  bool? rememberedSession;
+
+  @override
+  Future<bool> staySignedIn() async => true;
+
+  @override
+  Future<void> setStaySignedIn(bool value) async {
+    rememberedSession = value;
+  }
+
+  @override
+  Future<EmailSignUpResult> signUpWithEmail({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    registeredName = name;
+    registeredEmail = email;
+    registeredPassword = password;
+    return EmailSignUpResult(email: email, confirmationRequired: true);
+  }
+
+  @override
+  Future<void> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    signedInEmail = email;
+    signedInPassword = password;
+  }
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    resetEmail = email;
+  }
+}
+
+class _ProgressAccount extends _SignedInAccount {
+  final saves = <ContinueItem>[];
+
+  @override
+  Future<void> saveWatchProgress({
+    required ViewerProfile profile,
+    required Media media,
+    required double position,
+    required double duration,
+    required bool completed,
+    int? season,
+    int? episode,
+  }) async {
+    if (!completed) {
+      saves.add(
+        ContinueItem(
+          media: media,
+          position: position,
+          duration: duration,
+          season: season,
+          episode: episode,
+        ),
+      );
+    }
+  }
 }
 
 void main() {
@@ -104,10 +186,120 @@ void main() {
     );
 
     expect(find.text('Welcome to Krzene'), findsOneWidget);
+    expect(find.text('Sign in with email'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Email'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Password'), findsOneWidget);
     expect(find.text('Continue with Google'), findsOneWidget);
     expect(find.text('Privacy'), findsOneWidget);
     expect(find.text('Terms'), findsOneWidget);
   });
+
+  testWidgets('email registration submits name email and password', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = _EmailAccount();
+    final controller = KrzeneController(account: account);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: KrzeneLoginPage(controller: controller),
+      ),
+    );
+
+    await tester.tap(find.text('Create account').first);
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Taylor Viewer');
+    await tester.enterText(fields.at(1), 'Taylor@Example.com');
+    await tester.enterText(fields.at(2), 'password123');
+    await tester.enterText(fields.at(3), 'password123');
+    await tester.tap(find.text('Create account').last);
+    await tester.pumpAndSettle();
+
+    expect(account.registeredName, 'Taylor Viewer');
+    expect(account.registeredEmail, 'Taylor@Example.com');
+    expect(account.registeredPassword, 'password123');
+    expect(find.textContaining('confirm your email'), findsOneWidget);
+  });
+
+  testWidgets('email sign in submits credentials', (WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = _EmailAccount();
+    final controller = KrzeneController(account: account);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: KrzeneLoginPage(controller: controller),
+      ),
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'viewer@example.com');
+    await tester.enterText(fields.at(1), 'password123');
+    await tester.tap(find.text('Sign in with email'));
+    await tester.pumpAndSettle();
+
+    expect(account.signedInEmail, 'viewer@example.com');
+    expect(account.signedInPassword, 'password123');
+    expect(account.rememberedSession, isTrue);
+  });
+
+  testWidgets('forgot password sends a Supabase reset request', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = _EmailAccount();
+    final controller = KrzeneController(account: account);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: KrzeneLoginPage(controller: controller),
+      ),
+    );
+
+    await tester.tap(find.text('Forgot password?'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Email').last,
+      'reset@example.com',
+    );
+    await tester.tap(find.text('Send reset link'));
+    await tester.pumpAndSettle();
+
+    expect(account.resetEmail, 'reset@example.com');
+    expect(find.textContaining('a reset link has been sent'), findsOneWidget);
+  });
+
+  test(
+    'watch progress immediately updates Continue Watching and persists',
+    () async {
+      final account = _ProgressAccount();
+      const profile = ViewerProfile(
+        id: 'profile-1',
+        name: 'Viewer',
+        isKids: false,
+      );
+      final media = _media('Progress Movie', ['Drama']);
+      final controller = KrzeneController(account: account)
+        ..profiles = const [profile]
+        ..activeProfile = profile;
+      addTearDown(controller.dispose);
+
+      await controller.saveWatchProgress(media, 42, 120);
+
+      expect(controller.continueWatching, hasLength(1));
+      expect(controller.continueWatching.single.media.key, media.key);
+      expect(controller.continueWatching.single.position, 42);
+      expect(account.saves.single.position, 42);
+    },
+  );
 
   testWidgets('profile shows account data and settings', (
     WidgetTester tester,
@@ -194,6 +386,49 @@ void main() {
 
     expect(account.deletedProfileIds, ['profile-1']);
     expect(controller.profiles, isEmpty);
+  });
+
+  testWidgets('manage profiles opens and submits change password', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = _EditableAccount();
+    final controller = KrzeneController(account: account);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: Scaffold(body: KrzeneAccountPage(controller: controller)),
+      ),
+    );
+
+    await tester.ensureVisible(find.text('Manage profiles'));
+    await tester.tap(find.text('Manage profiles'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Change password'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Change password'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'New password'),
+      'new-password-123',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Confirm new password'),
+      'new-password-123',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Change password'));
+    await tester.pumpAndSettle();
+
+    expect(account.changedPassword, 'new-password-123');
+    expect(
+      find.textContaining('Password changed successfully'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('help and support confirms account deletion', (
@@ -355,6 +590,42 @@ void main() {
     expect(find.text('Family Search Pick'), findsWidgets);
     expect(find.text('Crime Search Pick'), findsNothing);
     expect(find.text('Adult Hero'), findsNothing);
+  });
+
+  testWidgets('library uses a two-column vertical grid', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const profile = ViewerProfile(
+      id: 'profile-1',
+      name: 'Viewer',
+      isKids: false,
+    );
+    final controller = KrzeneController(account: _SignedInAccount())
+      ..activeProfile = profile
+      ..profiles = const [profile]
+      ..library = [
+        _media('Library One', ['Drama']),
+        _media('Library Two', ['Comedy']),
+        _media('Library Three', ['Action']),
+      ];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: Scaffold(body: LibraryPage(controller: controller)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final first = tester.getTopLeft(find.text('Library One').last);
+    final second = tester.getTopLeft(find.text('Library Two').last);
+    final third = tester.getTopLeft(find.text('Library Three').last);
+    expect((first.dy - second.dy).abs(), lessThan(2));
+    expect(second.dx, greaterThan(first.dx));
+    expect(third.dy, greaterThan(first.dy + 100));
   });
 
   testWidgets('leaving kids mode requires first-time parental PIN setup', (

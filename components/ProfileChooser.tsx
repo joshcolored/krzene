@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useAuth, type ViewerProfile } from "./AuthProvider";
 
 function ProfileAvatar({ profile }: { profile: ViewerProfile }) {
@@ -16,10 +16,15 @@ function ProfileAvatar({ profile }: { profile: ViewerProfile }) {
 }
 
 export function ProfileChooser({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { user, profiles, activeProfile, selectProfile, createProfile, deleteProfile, signOut, authError } = useAuth();
-  const [mode, setMode] = useState<"choose" | "add" | "manage">("choose");
+  const { user, profiles, activeProfile, selectProfile, createProfile, deleteProfile, changePassword, signOut, authError } = useAuth();
+  const [mode, setMode] = useState<"choose" | "add" | "manage" | "change-password">("choose");
   const [name, setName] = useState("");
   const [isKids, setIsKids] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<{ text: string; error: boolean } | null>(null);
 
   if (!open || !user) return null;
 
@@ -35,6 +40,38 @@ export function ProfileChooser({ open, onClose }: { open: boolean; onClose: () =
     setName("");
     setIsKids(false);
     await choose(created);
+  };
+
+  const usesEmailPassword = user.app_metadata?.provider === "email";
+
+  const submitPassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (changingPassword) return;
+    if (usesEmailPassword && !currentPassword) {
+      setPasswordStatus({ text: "Enter your current password.", error: true });
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordStatus({ text: "Your new password must contain at least 8 characters.", error: true });
+      return;
+    }
+    if (newPassword !== passwordConfirmation) {
+      setPasswordStatus({ text: "The new passwords do not match.", error: true });
+      return;
+    }
+    setChangingPassword(true);
+    setPasswordStatus(null);
+    try {
+      await changePassword(newPassword, usesEmailPassword ? currentPassword : undefined);
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordConfirmation("");
+      setPasswordStatus({ text: "Password changed. A security notification will be sent to your email.", error: false });
+    } catch (error) {
+      setPasswordStatus({ text: error instanceof Error ? error.message : "Password could not be changed.", error: true });
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
   return (
@@ -53,10 +90,20 @@ export function ProfileChooser({ open, onClose }: { open: boolean; onClose: () =
       <img className="pwa-profile-logo absolute top-6 left-7 h-[34px] w-auto max-[760px]:left-[18px] max-[760px]:h-7" src="/krzene-logo.svg" alt="Krzene" />
       <div className="ui-modal-panel-enter w-full max-w-[820px] text-center">
         <p className="mb-4 inline-block rounded-[20px] border border-white/9 bg-white/7 px-[13px] py-2 text-xs text-[#aaa6a0]">{user.email}</p>
-        <h1 className="font-display my-[10px] text-[clamp(38px,5vw,64px)] leading-none font-extrabold tracking-[-.045em] max-[760px]:text-[40px]" id="profile-title">{mode === "add" ? "Create a profile" : mode === "manage" ? "Manage profiles" : "Who’s watching?"}</h1>
-        <p className="m-0 text-[#aaa6a0]">{mode === "add" ? "Give everyone their own library." : "Choose a profile to continue."}</p>
+        <h1 className="font-display my-[10px] text-[clamp(38px,5vw,64px)] leading-none font-extrabold tracking-[-.045em] max-[760px]:text-[40px]" id="profile-title">{mode === "add" ? "Create a profile" : mode === "manage" ? "Manage profiles" : mode === "change-password" ? "Change password" : "Who’s watching?"}</h1>
+        <p className="m-0 text-[#aaa6a0]">{mode === "add" ? "Give everyone their own library." : mode === "change-password" ? "Update the password used for your Krzene account." : "Choose a profile to continue."}</p>
 
-        {mode === "add" ? (
+        {mode === "change-password" ? (
+          <form className="mx-auto mt-9 max-w-[390px] space-y-3 text-left" onSubmit={submitPassword}>
+            {usesEmailPassword && <input className="w-full rounded-xl border border-white/10 bg-[#171717] px-4 py-3.5 text-white outline-none focus:border-krzene-red" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" placeholder="Current password" />}
+            <input className="w-full rounded-xl border border-white/10 bg-[#171717] px-4 py-3.5 text-white outline-none focus:border-krzene-red" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" placeholder="New password" />
+            <input className="w-full rounded-xl border border-white/10 bg-[#171717] px-4 py-3.5 text-white outline-none focus:border-krzene-red" type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} autoComplete="new-password" placeholder="Confirm new password" />
+            <p className="text-xs leading-relaxed text-[#77736e]">Use at least 8 characters. Supabase securely updates your password.</p>
+            {passwordStatus && <p className={`text-center text-xs leading-relaxed ${passwordStatus.error ? "text-[#ff8b93]" : "text-[#47c98d]"}`}>{passwordStatus.text}</p>}
+            <button className="w-full cursor-pointer rounded-xl bg-krzene-red px-5 py-3.5 font-extrabold disabled:opacity-55" type="submit" disabled={changingPassword}>{changingPassword ? "Saving…" : "Change password"}</button>
+            <button className="w-full cursor-pointer rounded-xl border border-white/9 bg-white/4 px-5 py-3.5 font-extrabold" type="button" onClick={() => setMode("manage")} disabled={changingPassword}>Back to profiles</button>
+          </form>
+        ) : mode === "add" ? (
           <div className="mx-auto mt-[42px] flex max-w-[300px] flex-col items-center gap-3">
             <span className="flex h-28 w-28 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_25%,#ee6972,#e21927)] font-sans text-[52px] font-light text-white shadow-[0_15px_50px_rgba(0,0,0,.45)]">+</span>
             <input className="w-full rounded-[10px] border border-[#3a3937] bg-[#171717] px-[14px] py-[13px] text-center text-white outline-none focus:border-krzene-red" value={name} onChange={(event) => setName(event.target.value)} maxLength={32} placeholder="Profile name" autoFocus />
@@ -84,6 +131,7 @@ export function ProfileChooser({ open, onClose }: { open: boolean; onClose: () =
             </div>
             <div className="flex justify-center gap-[10px]">
               <button className="cursor-pointer rounded-[11px] border border-white/9 bg-white/4 px-[17px] py-3 font-extrabold" onClick={() => setMode(mode === "manage" ? "choose" : "manage")}>{mode === "manage" ? "Done" : "Manage profiles"}</button>
+              {mode === "manage" && <button className="cursor-pointer rounded-[11px] border border-white/9 bg-white/4 px-[17px] py-3 font-extrabold" onClick={() => { setPasswordStatus(null); setMode("change-password"); }}>Change password</button>}
               <button className="cursor-pointer rounded-[11px] border border-white/9 bg-white/4 px-[17px] py-3 font-extrabold" onClick={signOut}>Sign out</button>
             </div>
           </>

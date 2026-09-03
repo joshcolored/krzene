@@ -13,5 +13,5 @@ export async function GET(request: Request) {
     if (!error) return NextResponse.redirect(new URL(next, url.origin));
   }
 
-  return NextResponse.redirect(new URL("/?auth_error=google", url.origin));
+  return NextResponse.redirect(new URL("/?auth_error=authentication", url.origin));
 }

@@ -65,7 +65,13 @@ class _KrzeneAppState extends State<KrzeneApp> {
             duration: const Duration(milliseconds: 420),
             switchInCurve: Curves.easeOutCubic,
             switchOutCurve: Curves.easeInCubic,
-            child: controller.signedIn
+            child: controller.passwordRecoveryMode
+                ? _ChangePasswordScreen(
+                    key: const ValueKey('password-recovery'),
+                    controller: controller,
+                    passwordRecovery: true,
+                  )
+                : controller.signedIn
                 ? HomeShell(key: const ValueKey('home'), controller: controller)
                 : KrzeneLoginPage(
                     key: const ValueKey('login'),
@@ -89,13 +95,100 @@ class KrzeneLoginPage extends StatefulWidget {
 class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
   bool openingGoogle = false;
   bool openingApple = false;
+  bool submittingEmail = false;
+  bool registrationMode = false;
+  bool obscurePassword = true;
+  bool staySignedIn = true;
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
 
-  bool get openingAuthentication => openingGoogle || openingApple;
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.account.staySignedIn().then((value) {
+      if (mounted) setState(() => staySignedIn = value);
+    });
+  }
+
+  bool get openingAuthentication =>
+      openingGoogle || openingApple || submittingEmail;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitEmail() async {
+    if (openingAuthentication) return;
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+    final emailLooksValid = RegExp(
+      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+    ).hasMatch(email);
+    if (registrationMode && (name.length < 2 || name.length > 64)) {
+      _showMessage('Enter your name using 2 to 64 characters.', isError: true);
+      return;
+    }
+    if (!emailLooksValid) {
+      _showMessage('Enter a valid email address.', isError: true);
+      return;
+    }
+    if (password.length < 8) {
+      _showMessage(
+        'Password must contain at least 8 characters.',
+        isError: true,
+      );
+      return;
+    }
+    if (registrationMode && password != confirmPasswordController.text) {
+      _showMessage('The passwords do not match.', isError: true);
+      return;
+    }
+
+    setState(() => submittingEmail = true);
+    try {
+      await widget.controller.account.setStaySignedIn(staySignedIn);
+      if (registrationMode) {
+        final result = await widget.controller.account.signUpWithEmail(
+          name: name,
+          email: email,
+          password: password,
+        );
+        if (result.confirmationRequired && mounted) {
+          setState(() {
+            registrationMode = false;
+            passwordController.clear();
+            confirmPasswordController.clear();
+          });
+          _showMessage(
+            'Check ${result.email} and confirm your email, then sign in.',
+          );
+        }
+      } else {
+        await widget.controller.account.signInWithEmail(
+          email: email,
+          password: password,
+        );
+      }
+    } catch (exception) {
+      _showSignInError(exception);
+    } finally {
+      if (mounted) setState(() => submittingEmail = false);
+    }
+  }
 
   Future<void> _signInWithGoogle() async {
     if (openingAuthentication) return;
     setState(() => openingGoogle = true);
     try {
+      await widget.controller.account.setStaySignedIn(staySignedIn);
       await widget.controller.account.signInWithGoogle();
     } catch (exception) {
       _showSignInError(exception);
@@ -108,6 +201,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
     if (openingAuthentication) return;
     setState(() => openingApple = true);
     try {
+      await widget.controller.account.setStaySignedIn(staySignedIn);
       await widget.controller.account.signInWithApple();
     } catch (exception) {
       _showSignInError(exception);
@@ -116,21 +210,75 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
     }
   }
 
+  Future<void> _forgotPassword() async {
+    final sentTo = await showDialog<String>(
+      context: context,
+      builder: (_) => _ForgotPasswordDialog(
+        initialEmail: emailController.text.trim(),
+        onSend: widget.controller.account.requestPasswordReset,
+      ),
+    );
+    if (sentTo != null) {
+      _showMessage(
+        'If an account exists for $sentTo, a reset link has been sent.',
+      );
+    }
+  }
+
   void _showSignInError(Object exception) {
+    _showMessage(
+      exception.toString().replaceFirst('Exception: ', ''),
+      isError: true,
+    );
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(18),
         content: Text(
-          exception.toString().replaceFirst('Exception: ', ''),
+          message,
           style: const TextStyle(color: Colors.white, height: 1.35),
         ),
-        backgroundColor: const Color(0xff541a20),
+        backgroundColor: isError
+            ? const Color(0xff541a20)
+            : const Color(0xff174d38),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
+
+  Widget _passwordField({required bool confirmation}) => TextField(
+    controller: confirmation ? confirmPasswordController : passwordController,
+    obscureText: obscurePassword,
+    autofillHints: confirmation
+        ? null
+        : registrationMode
+        ? const [AutofillHints.newPassword]
+        : const [AutofillHints.password],
+    textInputAction: confirmation ? TextInputAction.done : TextInputAction.next,
+    onSubmitted: confirmation || !registrationMode
+        ? (_) => _submitEmail()
+        : null,
+    decoration: InputDecoration(
+      labelText: confirmation ? 'Confirm password' : 'Password',
+      prefixIcon: const Icon(Icons.lock_outline_rounded),
+      suffixIcon: confirmation
+          ? null
+          : IconButton(
+              tooltip: obscurePassword ? 'Show password' : 'Hide password',
+              onPressed: () =>
+                  setState(() => obscurePassword = !obscurePassword),
+              icon: Icon(
+                obscurePassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+            ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -172,12 +320,166 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      'Sign in first to browse, create viewer profiles, save your library, and continue watching.',
+                    Text(
+                      registrationMode
+                          ? 'Create an account to save profiles, your library, and Continue Watching.'
+                          : 'Sign in to browse, manage profiles, save your library, and continue watching.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: krzeneMuted, height: 1.55),
+                      style: const TextStyle(color: krzeneMuted, height: 1.55),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          for (final mode in const [false, true])
+                            Expanded(
+                              child: TextButton(
+                                onPressed: openingAuthentication
+                                    ? null
+                                    : () => setState(() {
+                                        registrationMode = mode;
+                                        passwordController.clear();
+                                        confirmPasswordController.clear();
+                                      }),
+                                style: TextButton.styleFrom(
+                                  backgroundColor: registrationMode == mode
+                                      ? Colors.white12
+                                      : Colors.transparent,
+                                  foregroundColor: registrationMode == mode
+                                      ? Colors.white
+                                      : krzeneMuted,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: Text(
+                                  mode ? 'Create account' : 'Sign in',
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    AutofillGroup(
+                      child: Column(
+                        children: [
+                          if (registrationMode) ...[
+                            TextField(
+                              controller: nameController,
+                              autofillHints: const [AutofillHints.name],
+                              textCapitalization: TextCapitalization.words,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Name',
+                                prefixIcon: Icon(Icons.person_outline_rounded),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          TextField(
+                            controller: emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            autofillHints: const [AutofillHints.email],
+                            textInputAction: TextInputAction.next,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: Icon(Icons.mail_outline_rounded),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _passwordField(confirmation: false),
+                          if (registrationMode) ...[
+                            const SizedBox(height: 12),
+                            _passwordField(confirmation: true),
+                          ],
+                          if (!registrationMode) ...[
+                            const SizedBox(height: 5),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: openingAuthentication
+                                    ? null
+                                    : _forgotPassword,
+                                child: const Text('Forgot password?'),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (!registrationMode)
+                      CheckboxListTile(
+                        value: staySignedIn,
+                        onChanged: openingAuthentication
+                            ? null
+                            : (value) =>
+                                  setState(() => staySignedIn = value ?? false),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Stay signed in',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'Keep this device signed in after closing Krzene.',
+                          style: TextStyle(color: krzeneMuted, fontSize: 11),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: openingAuthentication ? null : _submitEmail,
+                        icon: submittingEmail
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : Icon(
+                                registrationMode
+                                    ? Icons.person_add_alt_1_rounded
+                                    : Icons.login_rounded,
+                              ),
+                        label: Text(
+                          registrationMode
+                              ? 'Create account'
+                              : 'Sign in with email',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    const Row(
+                      children: [
+                        Expanded(child: Divider(color: Colors.white12)),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'OR',
+                            style: TextStyle(
+                              color: Color(0xff77736e),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: Colors.white12)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
@@ -196,14 +498,17 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                                     color: Colors.black,
                                   ),
                                 )
-                              : const Row(
+                              : const FittedBox(
                                   key: ValueKey('google'),
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _GoogleBadge(),
-                                    SizedBox(width: 11),
-                                    Text('Continue with Google'),
-                                  ],
+                                  fit: BoxFit.scaleDown,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _GoogleBadge(),
+                                      SizedBox(width: 11),
+                                      Text('Continue with Google'),
+                                    ],
+                                  ),
                                 ),
                         ),
                       ),
@@ -220,20 +525,23 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                             backgroundColor: Colors.white,
                             foregroundColor: Colors.black,
                           ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _AppleBadge(),
-                              SizedBox(width: 11),
-                              Text('Continue with Apple'),
-                            ],
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _AppleBadge(),
+                                SizedBox(width: 11),
+                                Text('Continue with Apple'),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ],
                     const SizedBox(height: 16),
                     const Text(
-                      'Your provider securely returns you directly to Krzene after sign-in.',
+                      'Supabase securely handles your account. Krzene never stores your password.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Color(0xff77736e), fontSize: 11),
                     ),
@@ -261,6 +569,112 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
         ],
       ),
     ),
+  );
+}
+
+class _ForgotPasswordDialog extends StatefulWidget {
+  const _ForgotPasswordDialog({
+    required this.initialEmail,
+    required this.onSend,
+  });
+
+  final String initialEmail;
+  final Future<void> Function(String email) onSend;
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  late final TextEditingController emailController;
+  bool sending = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final email = emailController.text.trim();
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      setState(() => error = 'Enter a valid email address.');
+      return;
+    }
+    setState(() {
+      sending = true;
+      error = null;
+    });
+    try {
+      await widget.onSend(email);
+      if (mounted) Navigator.pop(context, email);
+    } catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        sending = false;
+        error = exception.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Reset password'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Enter your email and we’ll send a secure reset link.',
+          style: TextStyle(color: krzeneMuted, height: 1.45),
+        ),
+        const SizedBox(height: 18),
+        TextField(
+          controller: emailController,
+          keyboardType: TextInputType.emailAddress,
+          autocorrect: false,
+          autofocus: true,
+          onSubmitted: sending ? null : (_) => _send(),
+          decoration: const InputDecoration(
+            labelText: 'Email',
+            prefixIcon: Icon(Icons.mail_outline_rounded),
+          ),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            error!,
+            style: const TextStyle(color: Color(0xffff8b93), fontSize: 12),
+          ),
+        ],
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: sending ? null : () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: sending ? null : _send,
+        child: sending
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.black,
+                ),
+              )
+            : const Text('Send reset link'),
+      ),
+    ],
   );
 }
 
@@ -1049,29 +1463,63 @@ class LibraryPage extends StatelessWidget {
     if (controller.activeProfile == null) {
       return const Center(child: Text('Choose or create a profile first.'));
     }
-    return ListView(
-      padding: EdgeInsets.only(
-        top: MediaQuery.paddingOf(context).top + 12,
-        bottom: 112,
-      ),
-      children: [
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+        ),
         if (controller.continueWatching.isNotEmpty)
-          _ContinueRail(controller: controller),
-        _RailView(
-          rail: MediaRail(
-            'library',
-            'MY LIST',
-            'Saved titles',
-            controller.library,
+          SliverToBoxAdapter(child: _ContinueRail(controller: controller)),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 28, 18, 15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'MY LIST',
+                  style: TextStyle(
+                    color: krzeneMuted,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Saved titles',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ],
+            ),
           ),
-          controller: controller,
         ),
         if (controller.library.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(28),
-            child: Text(
-              'Tap + on a title to keep it here.',
-              style: TextStyle(color: Colors.white54),
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+              child: Text(
+                'Tap + on a title to keep it here.',
+                style: TextStyle(color: Colors.white54),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 132),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 220,
+                mainAxisExtent: 198,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: controller.library.length,
+              itemBuilder: (_, index) => _MediaCard(
+                media: controller.library[index],
+                controller: controller,
+                compact: true,
+              ),
             ),
           ),
       ],
@@ -1271,9 +1719,12 @@ class KrzeneAccountPage extends StatelessWidget {
       'avatar_url',
       'picture',
     ]);
-    final authProvider = user.appMetadata['provider'] == 'apple'
-        ? 'Apple account'
-        : 'Google account';
+    final provider = user.appMetadata['provider'];
+    final authProvider = switch (provider) {
+      'apple' => 'Apple account',
+      'email' => 'Email account',
+      _ => 'Google account',
+    };
 
     return ListView(
       padding: EdgeInsets.fromLTRB(
@@ -1766,11 +2217,11 @@ class _PrivacyScreen extends StatelessWidget {
       sections: [
         (
           'Information we handle',
-          'When you sign in, Krzene uses Supabase to store your account identifier, viewer profiles, library, and viewing progress. Apple or Google supplies the basic profile information you approve. Krzene never receives your provider password.',
+          'When you sign in, Krzene uses Supabase to store your account identifier, name, viewer profiles, library, and viewing progress. You can use email and password, Apple, or Google. Krzene never stores your password.',
         ),
         (
           'Service providers',
-          'Krzene uses Supabase for authentication and data storage, Apple and Google for sign-in, TMDB for catalog metadata, Watchmode for streaming availability, and third-party playback providers.',
+          'Krzene uses Supabase for authentication and data storage, Apple and Google for optional social sign-in, TMDB for catalog metadata, Watchmode for streaming availability, and third-party playback providers.',
         ),
         (
           'Your choices',
@@ -1915,7 +2366,273 @@ class _ManageProfilesScreen extends StatelessWidget {
               label: const Text('Add profile'),
             ),
           ),
+          const SizedBox(height: 34),
+          Text(
+            'Account security',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 7),
+          const Text(
+            'Manage the password used to sign in to Krzene.',
+            style: TextStyle(color: krzeneMuted, height: 1.5),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: krzenePanelRaised,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: _SettingsTile(
+              icon: Icons.password_rounded,
+              title: 'Change password',
+              subtitle: controller.account.usesEmailPassword
+                  ? 'Update your Krzene email password'
+                  : 'Create or update a password for this account',
+              onTap: () => _openAccountPage(
+                context,
+                _ChangePasswordScreen(controller: controller),
+              ),
+            ),
+          ),
         ],
+      ),
+    ),
+  );
+}
+
+class _ChangePasswordScreen extends StatefulWidget {
+  const _ChangePasswordScreen({
+    super.key,
+    required this.controller,
+    this.passwordRecovery = false,
+  });
+
+  final KrzeneController controller;
+  final bool passwordRecovery;
+
+  @override
+  State<_ChangePasswordScreen> createState() => _ChangePasswordScreenState();
+}
+
+class _ChangePasswordScreenState extends State<_ChangePasswordScreen> {
+  final currentPasswordController = TextEditingController();
+  final newPasswordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
+  bool obscure = true;
+  bool submitting = false;
+  String? status;
+  bool statusIsError = false;
+
+  bool get requiresCurrentPassword =>
+      !widget.passwordRecovery && widget.controller.account.usesEmailPassword;
+
+  @override
+  void dispose() {
+    currentPasswordController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (submitting) return;
+    final currentPassword = currentPasswordController.text;
+    final newPassword = newPasswordController.text;
+    if (requiresCurrentPassword && currentPassword.isEmpty) {
+      setState(() {
+        status = 'Enter your current password.';
+        statusIsError = true;
+      });
+      return;
+    }
+    if (newPassword.length < 8) {
+      setState(() {
+        status = 'Your new password must contain at least 8 characters.';
+        statusIsError = true;
+      });
+      return;
+    }
+    if (newPassword != confirmPasswordController.text) {
+      setState(() {
+        status = 'The new passwords do not match.';
+        statusIsError = true;
+      });
+      return;
+    }
+    if (currentPassword.isNotEmpty && currentPassword == newPassword) {
+      setState(() {
+        status = 'Choose a password different from your current password.';
+        statusIsError = true;
+      });
+      return;
+    }
+
+    setState(() {
+      submitting = true;
+      status = null;
+    });
+    try {
+      await widget.controller.account.changePassword(
+        newPassword: newPassword,
+        currentPassword: requiresCurrentPassword ? currentPassword : null,
+      );
+      currentPasswordController.clear();
+      newPasswordController.clear();
+      confirmPasswordController.clear();
+      if (!mounted) return;
+      setState(() {
+        status =
+            'Password changed successfully. A security notification will be sent to your email.';
+        statusIsError = false;
+      });
+      if (widget.passwordRecovery) {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        widget.controller.finishPasswordRecovery();
+      }
+    } catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        status = exception.toString().replaceFirst('Exception: ', '');
+        statusIsError = true;
+      });
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  Future<void> _close() async {
+    if (widget.passwordRecovery) {
+      widget.controller.finishPasswordRecovery();
+      await widget.controller.account.signOut();
+      return;
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
+  Widget _passwordField(
+    TextEditingController controller,
+    String label, {
+    TextInputAction action = TextInputAction.next,
+  }) => TextField(
+    controller: controller,
+    obscureText: obscure,
+    autocorrect: false,
+    enableSuggestions: false,
+    textInputAction: action,
+    onSubmitted: action == TextInputAction.done ? (_) => _submit() : null,
+    decoration: InputDecoration(
+      labelText: label,
+      prefixIcon: const Icon(Icons.lock_outline_rounded),
+      suffixIcon: IconButton(
+        onPressed: () => setState(() => obscure = !obscure),
+        tooltip: obscure ? 'Show passwords' : 'Hide passwords',
+        icon: Icon(
+          obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+        ),
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(
+        widget.passwordRecovery ? 'Reset password' : 'Change password',
+      ),
+      backgroundColor: krzeneBackground,
+      leading: IconButton(
+        onPressed: submitting ? null : _close,
+        icon: const Icon(Icons.arrow_back_rounded),
+      ),
+    ),
+    body: SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 28, 20, 40),
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 520),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: krzenePanelRaised,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: AutofillGroup(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const KrzeneMark(size: 48),
+                  const SizedBox(height: 24),
+                  Text(
+                    widget.passwordRecovery
+                        ? 'Choose a new password'
+                        : 'Protect your account',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    requiresCurrentPassword
+                        ? 'Enter your current password, then choose a new password with at least 8 characters.'
+                        : 'Choose a new password with at least 8 characters.',
+                    style: const TextStyle(color: krzeneMuted, height: 1.5),
+                  ),
+                  const SizedBox(height: 22),
+                  if (requiresCurrentPassword) ...[
+                    _passwordField(
+                      currentPasswordController,
+                      'Current password',
+                    ),
+                    const SizedBox(height: 13),
+                  ],
+                  _passwordField(newPasswordController, 'New password'),
+                  const SizedBox(height: 13),
+                  _passwordField(
+                    confirmPasswordController,
+                    'Confirm new password',
+                    action: TextInputAction.done,
+                  ),
+                  if (status != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      status!,
+                      style: TextStyle(
+                        color: statusIsError
+                            ? const Color(0xffff8b93)
+                            : krzeneGreen,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: submitting ? null : _submit,
+                      icon: submitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
+                            )
+                          : const Icon(Icons.password_rounded),
+                      label: Text(
+                        widget.passwordRecovery
+                            ? 'Save new password'
+                            : 'Change password',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     ),
   );
