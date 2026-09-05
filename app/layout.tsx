@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 import { AuthProvider } from "@/components/AuthProvider";
 import { PwaRegister } from "@/components/PwaRegister";
 import { TvRemoteNavigation } from "@/components/TvRemoteNavigation";
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <AuthProvider>{children}</AuthProvider>
         <TvRemoteNavigation />
         <PwaRegister />
+        <Analytics />
       </body>
     </html>
   );
