@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://krzene.site/sitemap.xml
