@@ -26,7 +26,10 @@ export function AppDownloadMenu({ mobile = false }: { mobile?: boolean }) {
         }
       }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
+        // Touch browsers can blur the summary with no next focus target before
+        // dispatching the link's click. Keep it visible until that tap completes.
+        // Outside taps are handled separately by the pointerdown listener.
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
           menu.current?.removeAttribute("open");
         }
       }}
