@@ -4,25 +4,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isKidsMedia, watchHref, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
-import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/vidsrc";
-import { useVidSrcBridge } from "@/lib/vidsrc-bridge";
+import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/playback";
+import { usePlaybackBridge } from "@/lib/playback-bridge";
 import { useAuth } from "./AuthProvider";
-
-const SUBTITLE_LANGUAGES = [
-  { code: "", label: "Player default" },
-  { code: "en", label: "English" },
-  { code: "es", label: "Spanish" },
-  { code: "fr", label: "French" },
-  { code: "de", label: "German" },
-  { code: "pt", label: "Portuguese" },
-  { code: "it", label: "Italian" },
-  { code: "tl", label: "Filipino" },
-  { code: "ja", label: "Japanese" },
-  { code: "ko", label: "Korean" },
-  { code: "zh", label: "Chinese" },
-  { code: "hi", label: "Hindi" },
-  { code: "ar", label: "Arabic" },
-];
+import { resolveAnimeEpisode } from "@/lib/anime-mappings";
 
 type WatchMenu = "servers" | "episodes" | "subtitles";
 
@@ -58,7 +43,6 @@ export function WatchExperience({
   const [mirror, setMirror] = useState<PlaybackSource>(DEFAULT_MIRROR);
   const [season, setSeason] = useState(initialSeason);
   const [episode, setEpisode] = useState(Number.isInteger(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : 1);
-  const [subtitle, setSubtitle] = useState("en");
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
   const [sourceNotice, setSourceNotice] = useState("");
   const [transitionOrigin, setTransitionOrigin] = useState<WatchTransitionOrigin | null>(null);
@@ -98,20 +82,24 @@ export function WatchExperience({
   const isSeries = detail.kind === "tv";
   const seasons = detail.seasons;
   const activeSeason = seasons.find((entry) => entry.number === season) ?? seasons[0];
-  const embedId = mirror.provider === "vidsrc" ? detail.imdbId ?? detail.tmdbId : detail.tmdbId;
+  const embedId = detail.tmdbId;
+  const animeEpisode = resolveAnimeEpisode(detail.animeMappings ?? [], season, episode);
 
   const sourceUrl = useMemo(
     () =>
-      embedUrl(detail.kind, embedId, isSeries ? season : null, isSeries ? episode : null, {
+      embedUrl(detail.kind, embedId,
+        mirror.provider === "zoryva" && animeEpisode ? 1 : isSeries ? season : null,
+        mirror.provider === "zoryva" && animeEpisode ? animeEpisode.episode : isSeries ? episode : null, {
         host: mirror.host,
         provider: mirror.provider,
-        subtitleLanguage: subtitle || undefined,
+        anilistId: animeEpisode?.anilistId,
         autoplay: true,
         startAt: Number.isFinite(resumeAt) && resumeAt > 0 ? resumeAt : undefined,
       }),
-    [detail.kind, embedId, episode, isSeries, mirror.host, mirror.provider, resumeAt, season, subtitle],
+    [detail.kind, animeEpisode?.anilistId, animeEpisode?.episode, embedId, episode, isSeries, mirror.host, mirror.provider, resumeAt, season],
   );
-  const [playback, remote] = useVidSrcBridge(frameRef, sourceUrl, mirror.provider === "vidsrc");
+  // These providers use native player controls; no undocumented remote commands.
+  const [playback, remote] = usePlaybackBridge(frameRef, sourceUrl, false);
   const resumeSent = useRef(false);
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
@@ -145,7 +133,6 @@ export function WatchExperience({
   useEffect(() => {
     attemptedSourcesRef.current.clear();
     setSourceNotice("");
-    setMirror(PLAYBACK_SOURCES[0]);
   }, [detail.key, episode, season]);
 
   useEffect(() => {
@@ -440,22 +427,9 @@ export function WatchExperience({
               )}
 
               {openMenu === "subtitles" && (
-                <div className="grid grid-cols-2 gap-1 max-[480px]:grid-cols-1">
-                  {SUBTITLE_LANGUAGES.map((language) => (
-                    <button
-                      key={language.code || "default"}
-                      type="button"
-                      className={`flex cursor-pointer items-center rounded-lg px-3 py-2 text-left text-xs transition ${subtitle === language.code ? "bg-white/13 text-white" : "text-[#aaa59e] hover:bg-white/8 hover:text-white"}`}
-                      onClick={() => {
-                        setSubtitle(language.code);
-                        setOpenMenu(null);
-                      }}
-                    >
-                      {language.label}
-                      {subtitle === language.code && <span className="ml-auto text-[#f5ad12]">✓</span>}
-                    </button>
-                  ))}
-                </div>
+                <p className="p-2 text-sm text-[#aaa59e]">
+                  Use {mirror.name}&apos;s settings inside the video to choose available subtitles.
+                </p>
               )}
 
               {openMenu === "servers" && (

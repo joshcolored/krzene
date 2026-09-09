@@ -283,51 +283,33 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const Positioned(top: 22, left: 22, child: KrzeneLogo(markSize: 39)),
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(22, 104, 22, 30),
-              child: Container(
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          // No scrolling when the page fits; keep fields reachable with the
+          // keyboard open, larger accessibility text, or a smaller display.
+          physics: const ClampingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: (constraints.maxHeight - 32).clamp(
+                0.0,
+                double.infinity,
+              ),
+            ),
+            child: Center(
+              child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 450),
-                padding: const EdgeInsets.fromLTRB(25, 38, 25, 30),
-                decoration: BoxDecoration(
-                  gradient: const RadialGradient(
-                    center: Alignment(-.5, -.8),
-                    radius: 1.55,
-                    colors: [Color(0xff1f302e), Color(0xff101212)],
-                  ),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: Colors.white12),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black54,
-                      blurRadius: 42,
-                      offset: Offset(0, 20),
-                    ),
-                  ],
-                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const KrzeneMark(size: 62),
-                    const SizedBox(height: 27),
+                    const KrzeneMark(size: 48),
+                    const SizedBox(height: 12),
                     Text(
                       'Welcome to Krzene',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      registrationMode
-                          ? 'Create an account to save profiles, your library, and Continue Watching.'
-                          : 'Sign in to browse, manage profiles, save your library, and continue watching.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: krzeneMuted, height: 1.55),
-                    ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
@@ -366,7 +348,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     AutofillGroup(
                       child: Column(
                         children: [
@@ -434,7 +416,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                           style: TextStyle(color: krzeneMuted, fontSize: 11),
                         ),
                       ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
@@ -460,7 +442,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 12),
                     const Row(
                       children: [
                         Expanded(child: Divider(color: Colors.white12)),
@@ -479,7 +461,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                         Expanded(child: Divider(color: Colors.white12)),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
@@ -539,13 +521,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Supabase securely handles your account. Krzene never stores your password.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xff77736e), fontSize: 11),
-                    ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 4),
                     Wrap(
                       alignment: WrapAlignment.center,
                       children: [
@@ -566,7 +542,7 @@ class _KrzeneLoginPageState extends State<KrzeneLoginPage> {
               ),
             ),
           ),
-        ],
+        ),
       ),
     ),
   );
@@ -679,21 +655,83 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
 }
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, required this.controller});
+  const HomeShell({super.key, required this.controller, this.initialIndex = 0});
   final KrzeneController controller;
+  final int initialIndex;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int index = 0;
+  late int index;
+  String? browseGenre;
+  bool headerVisible = true;
+  double headerScrollTravel = 0;
+  double featureHeight = 530;
+  final featureKey = GlobalKey();
+
+  bool _handlePageScroll(int pageIndex, ScrollNotification notification) {
+    if (pageIndex != index ||
+        index == 1 ||
+        notification.depth != 0 ||
+        notification.metrics.axis != Axis.vertical ||
+        notification is! ScrollUpdateNotification) {
+      return false;
+    }
+    final delta = notification.scrollDelta ?? 0;
+    // Ignore iOS overscroll/bounce so it doesn't flicker the header.
+    final metrics = notification.metrics;
+    if (metrics.pixels < metrics.minScrollExtent ||
+        metrics.pixels > metrics.maxScrollExtent) {
+      return false;
+    }
+    final feature = featureKey.currentContext?.findRenderObject();
+    if (index == 0 && feature is RenderBox && feature.hasSize) {
+      featureHeight = feature.size.height;
+    }
+    if (metrics.pixels <= metrics.minScrollExtent) {
+      _setHeaderVisible(true);
+      headerScrollTravel = 0;
+      return false;
+    }
+    if (delta == 0) return false;
+    if (headerScrollTravel.sign != delta.sign) headerScrollTravel = 0;
+    headerScrollTravel += delta;
+    if (delta < 0 && headerScrollTravel <= -8) {
+      _setHeaderVisible(true);
+    } else if (delta > 0 && headerScrollTravel >= 12) {
+      // Browse retains its header while any of the feature is below it.
+      final featureVisible = index == 0 && metrics.pixels < featureHeight;
+      if (!featureVisible) _setHeaderVisible(false);
+    }
+    return false;
+  }
+
+  void _setHeaderVisible(bool visible) {
+    if (headerVisible == visible) return;
+    setState(() => headerVisible = visible);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    index = widget.initialIndex.clamp(0, 3);
+  }
 
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final browseGenres = _genresFor(_browseMediaFor(controller));
+    final activeBrowseGenre = browseGenres.contains(browseGenre)
+        ? browseGenre
+        : null;
     final pages = [
-      BrowsePage(controller: controller),
+      BrowsePage(
+        controller: controller,
+        selectedGenre: activeBrowseGenre,
+        featureKey: featureKey,
+      ),
       SearchPage(controller: controller),
       LibraryPage(controller: controller),
       KrzeneAccountPage(controller: controller),
@@ -701,11 +739,47 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        toolbarHeight: 68,
-        titleSpacing: 18,
-        backgroundColor: Colors.transparent,
-        title: const KrzeneLogo(markSize: 38),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(68),
+        child: AnimatedSlide(
+          key: const Key('catalog-header-motion'),
+          offset: headerVisible ? Offset.zero : const Offset(0, -1),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: IgnorePointer(
+            ignoring: !headerVisible,
+            child: ExcludeSemantics(
+              excluding: !headerVisible,
+              child: AppBar(
+                toolbarHeight: 68,
+                titleSpacing: 18,
+                backgroundColor: Colors.black,
+                surfaceTintColor: Colors.transparent,
+                systemOverlayStyle: SystemUiOverlayStyle.light,
+                title: const KrzeneLogo(markSize: 38),
+                actions: [
+                  if (index == 0 && browseGenres.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 18),
+                      child: Center(
+                        child: _GenreFilterButton(
+                          buttonKey: const Key('browse-genre-filter'),
+                          compact: true,
+                          genres: browseGenres,
+                          selectedGenre: activeBrowseGenre,
+                          onSelected: (value) => setState(() {
+                            browseGenre = value;
+                            headerVisible = true;
+                            headerScrollTravel = 0;
+                          }),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
       body: Stack(
         fit: StackFit.expand,
@@ -729,18 +803,34 @@ class _HomeShellState extends State<HomeShell> {
                       enabled: pageIndex == index,
                       child: ColoredBox(
                         color: krzeneBackground,
-                        child: pages[pageIndex],
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (notification) =>
+                              _handlePageScroll(pageIndex, notification),
+                          child: pages[pageIndex],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
+          // Preserve a readable black status bar when the toolbar slides away.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: MediaQuery.paddingOf(context).top,
+            child: const IgnorePointer(child: ColoredBox(color: Colors.black)),
+          ),
         ],
       ),
       bottomNavigationBar: _KrzeneNavigation(
         index: index,
-        onChanged: (value) => setState(() => index = value),
+        onChanged: (value) => setState(() {
+          index = value;
+          headerVisible = true;
+          headerScrollTravel = 0;
+        }),
       ),
     );
   }
@@ -939,9 +1029,139 @@ Future<void> _showLanguageSheet(
   if (selected != null) await controller.changeLanguage(selected);
 }
 
+List<String> _genresFor(Iterable<Media> media) {
+  final genres = <String>{};
+  for (final item in media) {
+    for (final genre in item.genres) {
+      final value = genre.trim();
+      if (value.isNotEmpty) genres.add(value);
+    }
+  }
+  return genres.toList()
+    ..sort((left, right) => left.toLowerCase().compareTo(right.toLowerCase()));
+}
+
+Iterable<Media> _browseMediaFor(KrzeneController controller) sync* {
+  final catalog = controller.catalog;
+  if (catalog == null) return;
+  final kids = controller.kidsMode;
+  if (!kids) yield catalog.hero;
+  for (final rail in catalog.rails) {
+    final isKidsRail = rail.id.startsWith('kids-');
+    if (kids != isKidsRail) continue;
+    for (final item in rail.items) {
+      if (!kids || item.isKidsSafe) yield item;
+    }
+  }
+}
+
+bool _matchesGenre(Media media, String? genre) {
+  if (genre == null) return true;
+  final selected = genre.trim().toLowerCase();
+  return media.genres.any((value) {
+    final candidate = value.trim().toLowerCase();
+    return candidate == selected ||
+        candidate.split('&').any((part) => part.trim() == selected);
+  });
+}
+
+class _GenreFilterButton extends StatelessWidget {
+  const _GenreFilterButton({
+    required this.genres,
+    required this.selectedGenre,
+    required this.onSelected,
+    required this.buttonKey,
+    this.compact = false,
+  });
+
+  final List<String> genres;
+  final String? selectedGenre;
+  final ValueChanged<String?> onSelected;
+  final Key buttonKey;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<String>(
+    key: buttonKey,
+    tooltip: selectedGenre == null
+        ? 'Filter by genre'
+        : 'Genre: $selectedGenre',
+    initialValue: selectedGenre ?? '',
+    onSelected: (value) => onSelected(value.isEmpty ? null : value),
+    itemBuilder: (_) => [
+      const PopupMenuItem(value: '', child: Text('All genres')),
+      for (final genre in genres)
+        PopupMenuItem(value: genre, child: Text(genre)),
+    ],
+    child: Semantics(
+      button: true,
+      label: selectedGenre == null
+          ? 'Filter by genre'
+          : 'Genre: $selectedGenre',
+      child: Padding(
+        // Keep a comfortable tap target around the logo-sized header control.
+        padding: EdgeInsets.all(compact ? 5 : 0),
+        child: Container(
+          constraints: BoxConstraints(
+            minWidth: compact ? 38 : 52,
+            minHeight: compact ? 38 : 52,
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : (selectedGenre == null ? 13 : 14),
+            vertical: compact ? 8 : 11,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .76),
+            borderRadius: BorderRadius.circular(compact ? 12 : 18),
+            border: Border.all(
+              color: selectedGenre == null ? Colors.white24 : krzeneGreen,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black45,
+                blurRadius: 18,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.tune_rounded,
+                size: compact ? 20 : 24,
+                color: selectedGenre == null ? Colors.white : krzeneGreen,
+              ),
+              if (selectedGenre != null && !compact) ...[
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 112),
+                  child: Text(
+                    selectedGenre!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class BrowsePage extends StatelessWidget {
-  const BrowsePage({super.key, required this.controller});
+  const BrowsePage({
+    super.key,
+    required this.controller,
+    this.selectedGenre,
+    this.featureKey,
+  });
   final KrzeneController controller;
+  final String? selectedGenre;
+  final Key? featureKey;
 
   @override
   Widget build(BuildContext context) {
@@ -956,7 +1176,7 @@ class BrowsePage extends StatelessWidget {
     }
     final catalog = controller.catalog!;
     final kids = controller.kidsMode;
-    final rails = catalog.rails
+    final availableRails = catalog.rails
         .where(
           (rail) =>
               kids ? rail.id.startsWith('kids-') : !rail.id.startsWith('kids-'),
@@ -973,18 +1193,41 @@ class BrowsePage extends StatelessWidget {
         )
         .where((rail) => rail.items.isNotEmpty)
         .toList();
-    final hero = kids
-        ? rails.expand((rail) => rail.items).firstOrNull
-        : catalog.hero;
+    final availableMedia = <Media>[
+      if (!kids) catalog.hero,
+      ...availableRails.expand((rail) => rail.items),
+    ];
+    final genres = _genresFor(availableMedia);
+    final activeGenre = genres.contains(selectedGenre) ? selectedGenre : null;
+    final rails = availableRails
+        .map(
+          (rail) => MediaRail(
+            rail.id,
+            rail.kicker,
+            rail.heading,
+            rail.items
+                .where((item) => _matchesGenre(item, activeGenre))
+                .toList(),
+          ),
+        )
+        .where((rail) => rail.items.isNotEmpty)
+        .toList();
+    final hero = activeGenre == null && !kids
+        ? catalog.hero
+        : availableMedia
+              .where((item) => _matchesGenre(item, activeGenre))
+              .firstOrNull;
     return RefreshIndicator(
       onRefresh: controller.loadCatalog,
       child: ListView(
-        padding: EdgeInsets.zero,
+        padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
         children: [
-          if (hero != null)
-            _HeroBanner(media: hero, controller: controller)
-          else
-            const _KidsCatalogEmpty(),
+          SizedBox(
+            key: featureKey,
+            child: hero != null
+                ? _HeroBanner(media: hero, controller: controller)
+                : const _KidsCatalogEmpty(),
+          ),
           if (controller.signedIn &&
               controller.activeProfile != null &&
               controller.continueWatching.isNotEmpty)
@@ -1277,6 +1520,7 @@ class _SearchPageState extends State<SearchPage> {
   String? error;
   int requestId = 0;
   String query = '';
+  String? selectedGenre;
 
   List<Media> get recommendations {
     final catalog = widget.controller.catalog;
@@ -1353,9 +1597,18 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final unfilteredItems = query.isEmpty ? recommendations : results;
-    final displayedItems = widget.controller.kidsMode
+    final profileSafeItems = widget.controller.kidsMode
         ? unfilteredItems.where((item) => item.isKidsSafe).toList()
         : unfilteredItems;
+    final genreSource = <Media>[
+      ...recommendations,
+      ...results,
+    ].where((item) => !widget.controller.kidsMode || item.isKidsSafe);
+    final genres = _genresFor(genreSource);
+    final activeGenre = genres.contains(selectedGenre) ? selectedGenre : null;
+    final displayedItems = profileSafeItems
+        .where((item) => _matchesGenre(item, activeGenre))
+        .toList();
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -1365,19 +1618,32 @@ class _SearchPageState extends State<SearchPage> {
       ),
       child: Column(
         children: [
-          TextField(
-            autofocus: false,
-            onChanged: search,
-            decoration: InputDecoration(
-              hintText: 'Search every movie and show',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: const Color(0xff171717),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  autofocus: false,
+                  onChanged: search,
+                  decoration: InputDecoration(
+                    hintText: 'Search every movie and show',
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: const Color(0xff171717),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 10),
+              _GenreFilterButton(
+                buttonKey: const Key('search-genre-filter'),
+                genres: genres,
+                selectedGenre: activeGenre,
+                onSelected: (value) => setState(() => selectedGenre = value),
+              ),
+            ],
           ),
           if (loading) const LinearProgressIndicator(),
           if (error != null)
@@ -1856,7 +2122,7 @@ class KrzeneAccountPage extends StatelessWidget {
               subtitle: 'Edit profile names and account profiles',
               onTap: () => _openAccountPage(
                 context,
-                _ManageProfilesScreen(controller: controller),
+                ManageProfilesScreen(controller: controller),
               ),
             ),
             _SettingsTile(
@@ -1892,6 +2158,12 @@ class KrzeneAccountPage extends StatelessWidget {
               title: 'Terms of use',
               subtitle: 'Rules for using Krzene',
               onTap: () => _openAccountPage(context, const _TermsScreen()),
+            ),
+            _SettingsTile(
+              icon: Icons.copyright_rounded,
+              title: 'Copyright & credits',
+              subtitle: 'Catalog and playback acknowledgements',
+              onTap: () => _openAccountPage(context, const _CreditsScreen()),
             ),
           ],
         ),
@@ -2257,6 +2529,43 @@ class _TermsScreen extends StatelessWidget {
   );
 }
 
+class _CreditsScreen extends StatelessWidget {
+  const _CreditsScreen();
+
+  @override
+  Widget build(BuildContext context) => const _AccountSubpage(
+    title: 'Copyright & credits',
+    child: _LegalCopy(
+      sections: [
+        (
+          'TMDB (The Movie Database)',
+          'Catalog metadata and artwork are provided through TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.\n\nwww.themoviedb.org',
+        ),
+        (
+          'IMDb',
+          'IMDb is a trademark of IMDb.com, Inc. IMDb content, where displayed, belongs to IMDb or its respective rights holders. Krzene is not endorsed or certified by IMDb.\n\nwww.imdb.com',
+        ),
+        (
+          'CineSrc',
+          'Embedded playback is provided through CineSrc. The CineSrc name and branding belong to their respective owners. This acknowledgement does not imply endorsement or ownership of the films and shows available through the service.\n\ncinesrc.st',
+        ),
+        (
+          'Zoryva',
+          'Zoryva provides an alternative embedded player. Its name, branding, and third-party content belong to their respective rights holders.\n\nzoryva.me',
+        ),
+        (
+          'Anime ID mappings',
+          'TMDB-to-AniList episode mappings use the community-maintained AniBridge mappings dataset. Coverage may be incomplete; unmatched titles use TMDB playback.\n\ngithub.com/anibridge/anibridge-mappings',
+        ),
+        (
+          'Content ownership',
+          'All movie and television titles, posters, artwork, videos, and third-party trademarks belong to their respective rights holders. Krzene does not claim ownership of this content. These credits do not grant permission to use or distribute third-party content.',
+        ),
+      ],
+    ),
+  );
+}
+
 class _AccountSubpage extends StatelessWidget {
   const _AccountSubpage({required this.title, required this.child});
   final String title;
@@ -2282,8 +2591,8 @@ class _AccountSubpage extends StatelessWidget {
   );
 }
 
-class _ManageProfilesScreen extends StatelessWidget {
-  const _ManageProfilesScreen({required this.controller});
+class ManageProfilesScreen extends StatelessWidget {
+  const ManageProfilesScreen({super.key, required this.controller});
 
   final KrzeneController controller;
 
@@ -3063,7 +3372,8 @@ class _AppleBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const SizedBox(
-    width: 22,
+    // The package's Apple artwork uses a 25:31 aspect ratio, not a square.
+    width: 22 * (25 / 31),
     height: 22,
     child: CustomPaint(painter: AppleLogoPainter(color: Colors.black)),
   );

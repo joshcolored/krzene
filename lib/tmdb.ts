@@ -2,14 +2,14 @@
  * TMDB client (server-only).
  *
  * TMDB supplies the catalog metadata — titles, artwork, genres, seasons, and
- * the IMDb id that VidSrc's embed endpoints key off. Playback itself is always
- * VidSrc; see lib/vidsrc.ts.
+ * the IMDb id for reference. Playback providers are defined in lib/playback.ts.
  *
  * Set TMDB_API_KEY in .env.local. Both credential types are accepted:
  *   - v3 API key (32 hex chars)      → sent as ?api_key=
  *   - v4 read access token (JWT)     → sent as Authorization: Bearer
  */
 
+import { animeMappings } from "./anime-mappings";
 import {
   accentFor,
   type Media,
@@ -84,6 +84,7 @@ async function tmdb<T>(path: string, params: Record<string, string | number> = {
  * ------------------------------------------------------------------ */
 
 type TmdbItem = {
+  original_language?: string;
   id: number;
   media_type?: string;
   title?: string;
@@ -239,7 +240,7 @@ function runtimeLabel(detail: TmdbDetail, kind: MediaKind): string {
 
 function seasonSummaries(detail: TmdbDetail): SeasonSummary[] {
   return (detail.seasons ?? [])
-    // Season 0 is specials; it usually has no VidSrc coverage.
+    // Keep the season picker focused on regular episodes.
     .filter((season) => season.season_number > 0 && (season.episode_count ?? 0) > 0)
     .map((season) => ({
       number: season.season_number,
@@ -284,6 +285,8 @@ export async function fetchDetailOutcome(
     status: "ok",
     detail: {
       ...base,
+      animeMappings: detail.original_language === "ja" && detail.genres?.some((genre) => genre.id === 16)
+        ? await animeMappings(kind, tmdbId) : [],
       backdrop: imageUrl(detail.backdrop_path, "original"),
       imdbId: detail.imdb_id ?? detail.external_ids?.imdb_id ?? null,
       runtime: runtimeLabel(detail, kind),

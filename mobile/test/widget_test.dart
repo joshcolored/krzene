@@ -159,13 +159,63 @@ class _ProgressAccount extends _SignedInAccount {
   }
 }
 
+class _LibraryAccount extends _SignedInAccount {
+  bool? lastSavedValue;
+  bool fail = false;
+
+  @override
+  Future<void> setLibrary({
+    required ViewerProfile profile,
+    required Media media,
+    required bool saved,
+  }) async {
+    lastSavedValue = saved;
+    if (fail) throw Exception('Could not update library.');
+  }
+}
+
 void main() {
+  const libraryMedia = Media(
+    key: 'movie:42',
+    kind: 'movie',
+    tmdbId: 42,
+    title: 'Library Test',
+    overview: '',
+    poster: null,
+    backdrop: null,
+    score: 7,
+    genres: ['Drama'],
+  );
+
   test('production API is the safe default for every device', () {
     expect(AppConfig.apiBaseUrl, 'https://krzene.site');
   });
 
   test('account access is safe before Supabase finishes initializing', () {
     expect(AccountRepository().user, isNull);
+  });
+
+  test('library toggle updates locally and rolls back a failed save', () async {
+    final account = _LibraryAccount();
+    final controller = KrzeneController(account: account)
+      ..activeProfile = const ViewerProfile(
+        id: 'profile-1',
+        name: 'Viewer',
+        isKids: false,
+      );
+    addTearDown(controller.dispose);
+
+    await controller.toggleLibrary(libraryMedia);
+    expect(controller.libraryKeys, contains(libraryMedia.key));
+    expect(account.lastSavedValue, isFalse);
+
+    account.fail = true;
+    await expectLater(
+      controller.toggleLibrary(libraryMedia),
+      throwsA(isA<Exception>()),
+    );
+    expect(controller.libraryKeys, contains(libraryMedia.key));
+    expect(controller.isLibraryUpdating(libraryMedia.key), isFalse);
   });
 
   testWidgets('Krzene app starts', (WidgetTester tester) async {
@@ -192,6 +242,35 @@ void main() {
     expect(find.text('Continue with Google'), findsOneWidget);
     expect(find.text('Privacy'), findsOneWidget);
     expect(find.text('Terms'), findsOneWidget);
+  });
+
+  testWidgets('login is a full page that fits without scrolling', (
+    tester,
+  ) async {
+    // Reserve room for iOS safe areas and the Apple button (not built on host).
+    await tester.binding.setSurfaceSize(const Size(430, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = KrzeneController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: KrzeneLoginPage(controller: controller),
+      ),
+    );
+    expect(find.byType(KrzeneLogo), findsNothing);
+    expect(find.byType(KrzeneMark), findsOneWidget);
+    final scrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(SingleChildScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(scrollable.position.maxScrollExtent, 0);
+    expect(find.text('Terms').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('email registration submits name email and password', (
@@ -518,6 +597,214 @@ void main() {
 
     expect(find.text('Recommended to watch'), findsOneWidget);
     expect(find.text('Recommended Movie'), findsAtLeastNWidgets(1));
+  });
+
+  testWidgets('browse genre selector filters the hero and catalog rails', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = KrzeneController()
+      ..catalog = HomeCatalog(_detail('Action Hero', ['Action']), [
+        MediaRail('trending', 'TRENDING', 'Popular now', [
+          _media('Drama Pick', ['Drama']),
+          _media('Comedy Pick', ['Comedy']),
+        ]),
+      ], 'en-US');
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: HomeShell(controller: controller),
+      ),
+    );
+
+    final browse = find.byType(BrowsePage);
+    expect(
+      find.descendant(of: browse, matching: find.text('Action Hero')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: browse, matching: find.text('Comedy Pick')),
+      findsWidgets,
+    );
+    final filterPosition = tester.getTopLeft(
+      find.byKey(const Key('browse-genre-filter')),
+    );
+    await tester.drag(
+      find.descendant(of: browse, matching: find.byType(ListView)).first,
+      const Offset(0, -120),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.byKey(const Key('browse-genre-filter'))).dy,
+      filterPosition.dy,
+    );
+    await tester.tap(find.byKey(const Key('browse-genre-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Drama').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(of: browse, matching: find.text('Drama Pick')),
+      findsWidgets,
+    );
+    expect(
+      find.descendant(of: browse, matching: find.text('Action Hero')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: browse, matching: find.text('Comedy Pick')),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'black browse header hides only past the feature and returns on upward scroll',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = KrzeneController()
+        ..catalog = HomeCatalog(_detail('Featured film', ['Action']), [
+          for (var rail = 0; rail < 8; rail++)
+            MediaRail('rail-$rail', 'MOVIES', 'Rail $rail', [
+              for (var item = 0; item < 5; item++)
+                _media('Movie $rail $item', ['Action']),
+            ]),
+        ], 'en-US');
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: krzeneTheme(),
+          home: HomeShell(controller: controller),
+        ),
+      );
+      final browse = find.byType(BrowsePage);
+      final list = find
+          .descendant(of: browse, matching: find.byType(ListView))
+          .first;
+      final scroll = tester.state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)).first,
+      );
+      Offset headerOffset() => tester
+          .widget<AnimatedSlide>(find.byKey(const Key('catalog-header-motion')))
+          .offset;
+      expect(
+        tester.widget<AppBar>(find.byType(AppBar)).backgroundColor,
+        Colors.black,
+      );
+      expect(headerOffset(), Offset.zero);
+      scroll.position.jumpTo(200);
+      await tester.pumpAndSettle();
+      expect(headerOffset(), Offset.zero);
+      scroll.position.jumpTo(600);
+      await tester.pumpAndSettle();
+      expect(headerOffset(), const Offset(0, -1));
+      // Horizontal title rails must not reveal the hidden header.
+      final horizontal = find
+          .descendant(
+            of: browse,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is ListView &&
+                  widget.scrollDirection == Axis.horizontal,
+            ),
+          )
+          .first;
+      final railScroll = tester.state<ScrollableState>(
+        find
+            .descendant(of: horizontal, matching: find.byType(Scrollable))
+            .first,
+      );
+      railScroll.position.jumpTo(100);
+      await tester.pumpAndSettle();
+      expect(headerOffset(), const Offset(0, -1));
+      scroll.position.jumpTo(560);
+      await tester.pumpAndSettle();
+      expect(headerOffset(), Offset.zero);
+      scroll.position.jumpTo(650);
+      await tester.pumpAndSettle();
+      expect(headerOffset(), const Offset(0, -1));
+      await tester.tap(find.text('Search').last);
+      await tester.pumpAndSettle();
+      expect(headerOffset(), Offset.zero);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final tab in [2, 3]) {
+    testWidgets(
+      'header hides and returns on ${tab == 2 ? 'Library' : 'Profile'} scroll',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(430, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        const profile = ViewerProfile(
+          id: 'profile-1',
+          name: 'Viewer',
+          isKids: false,
+        );
+        final controller = KrzeneController(account: _SignedInAccount())
+          ..activeProfile = profile
+          ..profiles = const [profile]
+          ..library = [
+            for (var i = 0; i < 20; i++) _media('Saved $i', ['Drama']),
+          ];
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: krzeneTheme(),
+            home: HomeShell(controller: controller, initialIndex: tab),
+          ),
+        );
+        final page = find.byType(tab == 2 ? LibraryPage : KrzeneAccountPage);
+        final scroll = tester.state<ScrollableState>(
+          find.descendant(of: page, matching: find.byType(Scrollable)).first,
+        );
+        Offset headerOffset() => tester
+            .widget<AnimatedSlide>(
+              find.byKey(const Key('catalog-header-motion')),
+            )
+            .offset;
+        scroll.position.jumpTo(150);
+        await tester.pumpAndSettle();
+        expect(headerOffset(), const Offset(0, -1));
+        scroll.position.jumpTo(100);
+        await tester.pumpAndSettle();
+        expect(headerOffset(), Offset.zero);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('search genre selector filters recommendations', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = KrzeneController()
+      ..catalog = HomeCatalog(_detail('Catalog Hero', ['Action']), [
+        MediaRail('recommended', 'FOR YOU', 'Recommended to watch', [
+          _media('Action Search Pick', ['Action']),
+          _media('Horror Search Pick', ['Horror']),
+        ]),
+      ], 'en-US');
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: krzeneTheme(),
+        home: Scaffold(body: SearchPage(controller: controller)),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('search-genre-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Horror').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Horror Search Pick'), findsWidgets);
+    expect(find.text('Action Search Pick'), findsNothing);
   });
 
   test('kids safety accepts only explicit Kids or Family genres', () {

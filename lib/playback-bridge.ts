@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Bridge to the VidSrc embed's postMessage relay.
+ * Optional bridge for providers implementing the PLAYER_EVENT protocol.
  *
  * The embed is a chain of nested frames, each of which relays postMessages in
  * BOTH directions:
@@ -42,7 +42,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
  * State
  * ------------------------------------------------------------------ */
 
-export type VidSrcBridgeState = {
+export type PlaybackBridgeState = {
   /** A PLAYER_EVENT has arrived, so the transport below this is real. */
   connected: boolean;
   playing: boolean;
@@ -60,7 +60,7 @@ export type VidSrcBridgeState = {
   barVisible: boolean;
 };
 
-export type VidSrcRemote = {
+export type PlaybackRemote = {
   play(): void;
   pause(): void;
   setMuted(next: boolean): void;
@@ -69,7 +69,7 @@ export type VidSrcRemote = {
   seekBy(delta: number): void;
 };
 
-const IDLE: VidSrcBridgeState = {
+const IDLE: PlaybackBridgeState = {
   connected: false,
   playing: false,
   position: 0,
@@ -97,13 +97,13 @@ function label(value: unknown): string | null {
  * Hook
  * ------------------------------------------------------------------ */
 
-export function useVidSrcBridge(
+export function usePlaybackBridge(
   frameRef: RefObject<HTMLIFrameElement | null>,
   /** Changing this drops all state — pass the embed URL. */
   resetKey: string,
   enabled = true,
-): [VidSrcBridgeState, VidSrcRemote] {
-  const [state, setState] = useState<VidSrcBridgeState>(IDLE);
+): [PlaybackBridgeState, PlaybackRemote] {
+  const [state, setState] = useState<PlaybackBridgeState>(IDLE);
 
   /**
    * Wall-clock anchor for interpolation. The player only reports progress
@@ -128,16 +128,15 @@ export function useVidSrcBridge(
     (message: Record<string, unknown>) => {
       const target = frameRef.current?.contentWindow;
       if (!target) return;
-      // "*" is unavoidable: vidsrc.me redirects to another host, so the frame's
-      // real origin is not knowable from here. The payload is only ever a
-      // playback command — nothing sensitive crosses.
+      if (!enabled) return;
+      // Optional protocol commands contain no credentials or user data.
       try {
         target.postMessage(message, "*");
       } catch {
         /* Frame torn down mid-command. */
       }
     },
-    [frameRef],
+    [enabled, frameRef],
   );
 
   /* ------------------------------ inbound ------------------------------ */
@@ -249,7 +248,7 @@ export function useVidSrcBridge(
 
   /* ----------------------------- outbound ----------------------------- */
 
-  const remote = useMemo<VidSrcRemote>(() => {
+  const remote = useMemo<PlaybackRemote>(() => {
     const mark = (position: number) => {
       anchor.current = { at: Date.now(), position };
       positionRef.current = position;

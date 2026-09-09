@@ -72,6 +72,7 @@ class MediaDetail extends Media {
     required this.tagline,
     required this.seasons,
     required this.recommendations,
+    this.animeMappings = const [],
     super.year,
   });
 
@@ -79,6 +80,7 @@ class MediaDetail extends Media {
   final String tagline;
   final List<SeasonInfo> seasons;
   final List<Media> recommendations;
+  final List<AnimeMapping> animeMappings;
 
   factory MediaDetail.fromJson(Map<String, dynamic> json) {
     final base = Media.fromJson(json);
@@ -103,6 +105,52 @@ class MediaDetail extends Media {
           .whereType<Map<String, dynamic>>()
           .map(Media.fromJson)
           .toList(),
+      animeMappings: (json['animeMappings'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(AnimeMapping.fromJson)
+          .whereType<AnimeMapping>()
+          .toList(),
+    );
+  }
+}
+
+class AnimeMapping {
+  const AnimeMapping({
+    required this.season,
+    required this.anilistId,
+    required this.firstEpisode,
+    required this.lastEpisode,
+    required this.anilistFirstEpisode,
+  });
+  final int season;
+  final int anilistId;
+  final int firstEpisode;
+  final int? lastEpisode;
+  final int anilistFirstEpisode;
+
+  static AnimeMapping? fromJson(Map<String, dynamic> json) {
+    final season = json['season'];
+    final id = json['anilistId'];
+    final first = json['firstEpisode'];
+    final last = json['lastEpisode'];
+    final target = json['anilistFirstEpisode'];
+    if (season is! int ||
+        season < 1 ||
+        id is! int ||
+        id < 1 ||
+        first is! int ||
+        first < 1 ||
+        target is! int ||
+        target < 1 ||
+        (last != null && (last is! int || last < first))) {
+      return null;
+    }
+    return AnimeMapping(
+      season: season,
+      anilistId: id,
+      firstEpisode: first,
+      lastEpisode: last as int?,
+      anilistFirstEpisode: target,
     );
   }
 }

@@ -10,7 +10,7 @@ import { fetchWatchmodeOffers } from "@/lib/watchmode";
 export const dynamic = "force-dynamic";
 
 /**
- * Playback needs only the id — VidSrc's embed endpoints accept a bare TMDB id.
+ * Movie and TV playback providers accept TMDB IDs.
  * So when TMDB metadata is unavailable (no key, rate limit, network blip) the
  * player still works; only the surrounding copy degrades. A 404 is reserved
  * for a genuinely malformed URL.
@@ -65,7 +65,7 @@ export default async function WatchPage({
     <WatchExperience
       detail={placeholderDetail(kind, tmdbId)}
       streamingOffers={streamingOffers}
-      notice="Couldn't reach TMDB for this title's details, so the synopsis and episode list are unavailable. Playback is unaffected — it streams from VidSrc using the TMDB id."
+      notice="Couldn't reach TMDB for this title's details, so the synopsis and episode list are unavailable. You can still try playback using the TMDB ID."
     />
   );
 }

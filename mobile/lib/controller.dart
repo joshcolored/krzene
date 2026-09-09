@@ -29,6 +29,7 @@ class KrzeneController extends ChangeNotifier {
   ViewerProfile? activeProfile;
   List<Media> library = [];
   List<ContinueItem> continueWatching = [];
+  final Set<String> _libraryMutations = <String>{};
   bool _adultProfilesUnlocked = false;
   bool passwordRecoveryMode = false;
 
@@ -36,6 +37,8 @@ class KrzeneController extends ChangeNotifier {
   bool get kidsMode => activeProfile?.isKids == true;
   bool get hasKidsProfile => profiles.any((profile) => profile.isKids);
   Set<String> get libraryKeys => library.map((item) => item.key).toSet();
+  bool isLibraryUpdating(String mediaKey) =>
+      _libraryMutations.contains(mediaKey);
 
   bool requiresParentalUnlock(ViewerProfile profile) =>
       !profile.isKids && hasKidsProfile && !_adultProfilesUnlocked;
@@ -170,15 +173,26 @@ class KrzeneController extends ChangeNotifier {
   Future<void> toggleLibrary(Media media) async {
     final profile = activeProfile;
     if (profile == null) return;
+    if (_libraryMutations.contains(media.key)) return;
     if (profile.isKids && !media.isKidsSafe) {
       throw Exception('This title is not available in a Kids profile.');
     }
     final saved = library.any((item) => item.key == media.key);
-    await account.setLibrary(profile: profile, media: media, saved: saved);
+    final previousLibrary = library;
+    _libraryMutations.add(media.key);
     library = saved
         ? library.where((item) => item.key != media.key).toList()
         : [media, ...library];
     notifyListeners();
+    try {
+      await account.setLibrary(profile: profile, media: media, saved: saved);
+    } catch (_) {
+      library = previousLibrary;
+      rethrow;
+    } finally {
+      _libraryMutations.remove(media.key);
+      notifyListeners();
+    }
   }
 
   Future<void> createProfile(String name, {bool kids = false}) async {

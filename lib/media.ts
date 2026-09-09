@@ -33,6 +33,7 @@ export type SeasonSummary = {
 };
 
 export type MediaDetail = Media & {
+  animeMappings?: import("./anime-mappings").AnimeMapping[];
   imdbId: string | null;
   /** "2h 11m" for movies, "3 seasons · 62 episodes" for shows. */
   runtime: string;
@@ -52,7 +53,7 @@ export type StreamingOffer = {
 };
 
 export type HomeData =
-  | { configured: true; hero: MediaDetail; rails: MediaRail[]; vidsrcMirror: string | null; localeCode: string }
+  | { configured: true; hero: MediaDetail; rails: MediaRail[]; localeCode: string }
   | { configured: false; reason: string };
 
 /**

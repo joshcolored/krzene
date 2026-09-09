@@ -1,16 +1,12 @@
 /**
  * Assembles the home screen catalog.
  *
- * Metadata and artwork come from TMDB; every play button resolves to a VidSrc
- * embed URL. The VidSrc `vapi` listing endpoints are also queried — they are
- * documented but currently retired, so that rail only appears if a mirror
- * answers.
+ * Metadata and artwork come from TMDB; playback providers are independent.
  */
 
-import type { HomeData, Media, MediaRail } from "./media";
+import type { HomeData, MediaRail } from "./media";
 import { catalogLocale } from "./catalog-locale";
 import { fetchDeepList, fetchDetail, fetchList, genreMap, isConfigured } from "./tmdb";
-import { vidsrcList } from "./vidsrc";
 
 /** Japanese animation, for the Anime tab. */
 const ANIME_PARAMS = {
@@ -53,8 +49,6 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
     kidsMovies,
     kidsShows,
     kidsAnimation,
-    vidsrcMovies,
-    vidsrcShows,
   ] = await Promise.all([
     deepList("/trending/all/week", "movie"),
     deepList("/trending/movie/day", "movie"),
@@ -88,8 +82,6 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
       include_adult: "false",
       sort_by: "popularity.desc",
     }),
-    vidsrcList("movie", "add"),
-    vidsrcList("tv", "add"),
   ]);
 
   if (!trending.length && !popularMovies.length && !popularShows.length) {
@@ -124,56 +116,10 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
     { id: "kids-animation", kicker: "ANIMATION", heading: "Animated adventures", kind: "tv", items: kidsAnimation },
   ];
 
-  // Only rendered when VidSrc's listing API is actually alive.
-  const freshOnVidsrc = mergeVidsrc(vidsrcMovies?.items, vidsrcShows?.items, [
-    ...trending,
-    ...popularMovies,
-    ...popularShows,
-    ...topMovies,
-    ...topShows,
-  ]);
-  if (freshOnVidsrc.length) {
-    rails.splice(1, 0, {
-      id: "vidsrc-fresh",
-      kicker: "VIDSRC",
-      heading: "Just added to VidSrc",
-      kind: "mixed",
-      items: freshOnVidsrc,
-    });
-  }
-
   return {
     configured: true,
     hero,
     rails: rails.filter((rail) => rail.items.length > 0),
-    vidsrcMirror: vidsrcMovies?.mirror ?? vidsrcShows?.mirror ?? null,
     localeCode: locale.code,
   };
-}
-
-/**
- * VidSrc list items carry ids and a title but no artwork, so they are only
- * usable once matched against a TMDB record we already hold.
- */
-function mergeVidsrc(
-  movies: { tmdbId: string | null; title: string }[] | undefined,
-  shows: { tmdbId: string | null; title: string }[] | undefined,
-  known: Media[],
-): Media[] {
-  const listed = [...(movies ?? []), ...(shows ?? [])];
-  if (!listed.length) return [];
-
-  const byId = new Map(known.map((item) => [String(item.tmdbId), item]));
-  const byTitle = new Map(known.map((item) => [item.title.toLowerCase(), item]));
-
-  const matched: Media[] = [];
-  const seen = new Set<string>();
-  for (const entry of listed) {
-    const hit = (entry.tmdbId ? byId.get(entry.tmdbId) : undefined) ?? byTitle.get(entry.title.toLowerCase());
-    if (hit && !seen.has(hit.key)) {
-      seen.add(hit.key);
-      matched.push(hit);
-    }
-  }
-  return matched.slice(0, 20);
 }

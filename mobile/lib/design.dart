@@ -193,7 +193,8 @@ class KrzeneLogo extends StatelessWidget {
         'krzene',
         style: GoogleFonts.manrope(
           color: krzeneText,
-          fontSize: markSize * .47,
+          // Match the wordmark's visible letter height to the K inside the mark.
+          fontSize: markSize * .8,
           fontWeight: FontWeight.w800,
           letterSpacing: -.8,
         ),

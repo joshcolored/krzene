@@ -1,14 +1,14 @@
 # Krzene
 
-Krzene is a cinematic streaming experience for the web, Android, and iOS. The Next.js web app and Flutter mobile app share a TMDB-powered catalog, licensed playback providers, Google authentication, viewer profiles, libraries, and Continue Watching data.
+Krzene is a cinematic streaming experience for the web, Android, and iOS. The Next.js web app and Flutter mobile app share a TMDB-powered catalog, third-party playback providers, Google authentication, viewer profiles, libraries, and Continue Watching data.
 
 ## Features
 
 - Responsive streaming catalog for desktop and mobile
 - Trending, movie, series, anime, and Top 10 carousels
 - TMDB metadata, artwork, search, genres, and recommendations
-- VidSrc movie and episode playback
-- CineSrc and MultiEmbed fallback playback servers
+- CineSrc (default) and Zoryva movie and episode playback
+- Zoryva anime playback using episode-aware AniList mappings
 - Email/password, Google, and Apple sign-in through Supabase Auth
 - Multiple viewer profiles per account
 - Separate Supabase-backed library for every profile
@@ -17,7 +17,7 @@ Krzene is a cinematic streaming experience for the web, Android, and iOS. The Ne
 - Privacy-aware manual AdSense placements (disabled for Kids profiles)
 - Vercel-ready OAuth callback and session middleware
 - Flutter clients for Android and iOS in `mobile/`
-- Mobile playback ordered as CineSrc, MultiEmbed, then VidSrc fallbacks
+- Mobile source selector with CineSrc and Zoryva
 
 ## Technology
 
@@ -27,7 +27,7 @@ Krzene is a cinematic streaming experience for the web, Android, and iOS. The Ne
 - Supabase Auth, PostgreSQL, and Row Level Security
 - TMDB API
 - Watchmode availability API
-- VidSrc embeds
+- CineSrc and Zoryva embeds
 
 ## Requirements
 
@@ -240,8 +240,8 @@ The native project lives in `mobile/` and keeps the web application unchanged. I
 - Google sign-in with the same Supabase project
 - Shared viewer profiles and profile-specific libraries
 - Kids-profile filtering
-- CineSrc as the default player, followed by MultiEmbed and VidSrc fallbacks
-- Manual source selection with an unavailable-media notice when needed
+- CineSrc as the default player and Zoryva as an alternative
+- Manual source selection and mobile popup/ad-navigation filtering
 - Android and iOS deep-link callback handling
 
 The Flutter app reads catalog metadata through Krzene's Next.js API, so `TMDB_API_KEY` remains server-side. Deploy the current web project before using the production API URL.
@@ -313,7 +313,8 @@ lib/
   supabase/            Browser, server, and middleware clients
   home.ts              Home catalog assembly
   tmdb.ts              TMDB API client
-  vidsrc.ts            VidSrc embed helpers
+  playback.ts          CineSrc and Zoryva embed helpers
+  anime-mappings.ts    TMDB-to-AniList season/episode mappings
 supabase/migrations/   Database schema and RLS policies
 mobile/                Flutter application for Android and iOS
 ```
@@ -342,6 +343,13 @@ Confirm that the correct viewer profile is selected. Libraries are intentionally
 
 ## Data providers
 
-Catalog metadata and artwork are provided by TMDB. Playback is embedded through VidSrc.
+Catalog metadata and artwork are provided by TMDB. Playback is embedded through CineSrc and Zoryva.
+
+Anime ID/episode mappings come from the community-maintained [AniBridge v3 dataset](https://github.com/anibridge/anibridge-mappings).
+The server caches this dataset for 24 hours and includes only the current title's normalized mappings in the title API response.
+Only unambiguous one-to-one episode mappings select Zoryva's AniList endpoint; unmapped titles, split/merged episodes, or unavailable mappings use the TMDB movie/TV endpoint.
+Deploy the updated Next.js API before expecting automatic anime mapping on mobile. No database migration or AniList credentials are required.
+Mobile ad filtering is best-effort: nested cross-origin player ads cannot all be inspected or blocked.
+Provider integration and attribution do not establish content-distribution rights.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.

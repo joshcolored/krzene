@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -9,21 +10,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import 'controller.dart';
 import 'models.dart';
-
-class PlaybackSource {
-  const PlaybackSource(this.name, this.host, this.provider);
-  final String name;
-  final String host;
-  final String provider;
-}
-
-const playbackSources = [
-  PlaybackSource('CineSrc', 'https://cinesrc.st', 'cinesrc'),
-  PlaybackSource('MultiEmbed', 'https://multiembed.mov', 'multiembed'),
-  PlaybackSource('VidSrc', 'https://vsembed.ru', 'vidsrc'),
-  PlaybackSource('VidSrc Backup', 'https://vsembed.su', 'vidsrc'),
-  PlaybackSource('VidSrc Legacy', 'https://vidsrc.me', 'vidsrc'),
-];
+import 'playback.dart';
 
 class WatchScreen extends StatefulWidget {
   const WatchScreen({
@@ -31,10 +18,12 @@ class WatchScreen extends StatefulWidget {
     required this.media,
     required this.controller,
     this.resume,
+    this.playerPreview,
   });
   final Media media;
   final KrzeneController controller;
   final ContinueItem? resume;
+  final Widget? playerPreview;
 
   @override
   State<WatchScreen> createState() => _WatchScreenState();
@@ -43,13 +32,15 @@ class WatchScreen extends StatefulWidget {
 class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   late final WebViewController web;
   late Future<MediaDetail> detailFuture;
-  int sourceIndex = 0;
+  PlaybackSource source = PlaybackSource.cineSrc;
+  List<AnimeMapping> animeMappings = const [];
+  int loadGeneration = 0;
+  bool loadingSource = false;
   int season = 1;
   int episode = 1;
-  Timer? loadTimer;
   Timer? progressTimer;
-  String? notice;
   double position = 0;
+  double resumeTarget = 0;
   double duration = 0;
   int savedProgressBucket = 0;
   bool resumeSent = false;
@@ -67,8 +58,11 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     season = widget.resume?.season ?? 1;
     episode = widget.resume?.episode ?? 1;
     position = widget.resume?.position ?? 0;
+    resumeTarget = position;
     duration = widget.resume?.duration ?? 0;
-    immersive = defaultTargetPlatform == TargetPlatform.android;
+    immersive =
+        widget.playerPreview == null &&
+        defaultTargetPlatform == TargetPlatform.android;
     savedProgressBucket = (position / 10).floor();
     lastProgressTick = DateTime.now();
     progressTimer = Timer.periodic(
@@ -79,38 +73,38 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       widget.media,
       widget.controller.language,
     );
-    web = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..addJavaScriptChannel(
-        'KrzeneBridge',
-        onMessageReceived: (message) => _handleBridgeMessage(message.message),
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (_) => _startWatchdog(),
-          onPageFinished: (_) {
-            loadTimer?.cancel();
-            playerPageReady = true;
-            lastProgressTick = DateTime.now();
-            _installPlaybackBridge();
-            _preparePlayerPage();
-            _scheduleMediaAvailabilityCheck();
-          },
-          onWebResourceError: (error) {
-            if (error.isForMainFrame ?? true) _showSourceUnavailable();
-          },
-          onNavigationRequest: _handleNavigation,
-        ),
-      );
-    if (web.platform is AndroidWebViewController) {
-      final android = web.platform as AndroidWebViewController;
-      unawaited(android.setMediaPlaybackRequiresUserGesture(false));
+    if (widget.playerPreview == null) {
+      web = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.black)
+        ..addJavaScriptChannel(
+          'KrzeneBridge',
+          onMessageReceived: (message) => _handleBridgeMessage(message.message),
+        )
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageStarted: (_) {
+              playerPageReady = false;
+              lastProgressTick = DateTime.now();
+            },
+            onPageFinished: (_) {
+              playerPageReady = true;
+              lastProgressTick = DateTime.now();
+              _installPlaybackBridge();
+              _preparePlayerPage();
+            },
+            onNavigationRequest: _handleNavigation,
+          ),
+        );
+      if (web.platform is AndroidWebViewController) {
+        final android = web.platform as AndroidWebViewController;
+        unawaited(android.setMediaPlaybackRequiresUserGesture(false));
+      }
+      web.loadRequest(Uri.parse(_embedUrl()));
     }
     if (immersive) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _enterImmersive());
     }
-    web.loadRequest(Uri.parse(_embedUrl()));
   }
 
   Future<void> _installPlaybackBridge() async {
@@ -163,7 +157,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   }
 
   NavigationDecision _handleNavigation(NavigationRequest request) {
-    if (!request.isMainFrame) return NavigationDecision.navigate;
     final target = Uri.tryParse(request.url);
     if (target == null || target.scheme == 'about') {
       return NavigationDecision.navigate;
@@ -184,6 +177,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       (host) => target.host == host || target.host.endsWith('.$host'),
     );
     if (isAdHost) return NavigationDecision.prevent;
+    if (!request.isMainFrame) return NavigationDecision.navigate;
+    if (target.host != Uri.parse(source.host).host) {
+      return NavigationDecision.prevent;
+    }
 
     // Once the provider has loaded, keep ad clicks from replacing the player
     // in the main frame. Subframe navigation remains available to the player.
@@ -236,6 +233,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
           };
 
           removeAds();
+          new MutationObserver(removeAds).observe(document.documentElement, {
+            childList: true, subtree: true
+          });
           startPlayback();
           [500, 1400, 2800].forEach((delay) => setTimeout(() => {
             removeAds();
@@ -270,6 +270,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   }
 
   void _handleBridgeMessage(String raw) {
+    if (!playerPageReady || loadingSource) return;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
@@ -299,9 +300,9 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         playerReportedPlaying = data['paused'] == false;
       }
 
-      if (!resumeSent && (widget.resume?.position ?? 0) >= 5) {
+      if (!resumeSent && resumeTarget >= 5) {
         resumeSent = true;
-        final target = widget.resume!.position.round();
+        final target = resumeTarget.round();
         web.runJavaScript(
           '''window.postMessage({player:true,action:'seek$target'}, '*');''',
         );
@@ -338,13 +339,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   }
 
   double _resumePositionForSelection() {
-    final resume = widget.resume;
-    if (resume == null) return 0;
-    if (widget.media.isSeries &&
-        ((resume.season ?? 1) != season || (resume.episode ?? 1) != episode)) {
-      return 0;
-    }
-    return resume.position;
+    return resumeTarget;
   }
 
   double? _seconds(Object? value) {
@@ -383,104 +378,81 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   }
 
   String _embedUrl() {
-    final source = playbackSources[sourceIndex];
-    final id = widget.media.tmdbId;
-    final resume = _resumePositionForSelection().floor();
-    if (source.provider == 'cinesrc') {
-      final path = widget.media.isSeries ? '/embed/tv/$id' : '/embed/movie/$id';
-      return Uri.parse('${source.host}$path')
-          .replace(
-            queryParameters: {
-              if (widget.media.isSeries) 's': '$season',
-              if (widget.media.isSeries) 'e': '$episode',
-              'autoplay': 'true',
-              'muted': 'false',
-              'controls': 'true',
-              'continueprompt': 'false',
-              if (resume > 0) 't': '$resume',
-            },
-          )
-          .toString();
-    }
-    if (source.provider == 'multiembed') {
-      return Uri.parse('${source.host}/directstream.php')
-          .replace(
-            queryParameters: {
-              'video_id': '$id',
-              'tmdb': '1',
-              if (widget.media.isSeries) 's': '$season',
-              if (widget.media.isSeries) 'e': '$episode',
-              'autoplay': '1',
-            },
-          )
-          .toString();
-    }
-    var path =
-        '${source.host}/embed/${widget.media.isSeries ? "tv" : "movie"}/$id';
-    if (widget.media.isSeries) path += '/$season/$episode';
-    return '$path?autoplay=1&ds_lang=en';
+    return playbackUri(
+      source: source,
+      media: widget.media,
+      season: season,
+      episode: episode,
+      resumeAt: position.floor(),
+      animeMappings: animeMappings,
+    ).toString();
   }
 
-  void _startWatchdog() {
-    playerPageReady = false;
-    lastProgressTick = DateTime.now();
-    loadTimer?.cancel();
-    loadTimer = Timer(const Duration(seconds: 20), _showSourceUnavailable);
-  }
-
-  void _scheduleMediaAvailabilityCheck() {
-    loadTimer?.cancel();
-    loadTimer = Timer(const Duration(seconds: 12), () {
-      unawaited(_checkMediaAvailability());
-    });
-  }
-
-  Future<void> _checkMediaAvailability() async {
-    try {
-      final result = await web.runJavaScriptReturningResult(r'''
-        (() => {
-          const text = (document.body?.innerText || '').toLowerCase();
-          const unavailable = [
-            'video not found', 'media not found', 'no media', 'no stream',
-            'stream not found', 'currently unavailable', 'not available'
-          ].some((message) => text.includes(message));
-          const candidates = [...document.querySelectorAll(
-            'video, iframe, object, embed, .jwplayer, .video-js, [class*="player" i]'
-          )];
-          const hasVisiblePlayer = candidates.some((node) => {
-            const bounds = node.getBoundingClientRect();
-            return bounds.width >= 160 && bounds.height >= 90;
-          });
-          return hasVisiblePlayer && !unavailable;
-        })();
-      ''');
-      final hasMedia = result == true || result.toString() == 'true';
-      if (!hasMedia) _showSourceUnavailable();
-    } catch (_) {
-      // Some providers prevent page inspection. A successfully loaded page is
-      // left alone so the user can decide whether to change the source.
-    }
-  }
-
-  void _showSourceUnavailable() {
-    loadTimer?.cancel();
-    if (!mounted) return;
-    final source = playbackSources[sourceIndex];
-    setState(() => notice = 'No media on ${source.name}. Try another source.');
-  }
-
-  void _selectSource(int index) {
+  Future<void> _loadSelectedSource() async {
+    final generation = ++loadGeneration;
     setState(() {
-      sourceIndex = index;
-      notice = null;
-      resumeSent = false;
+      loadingSource = true;
+      resumeTarget = position;
       playerPageReady = false;
+      resumeSent = false;
       playerReportedPlaying = null;
       lastExactProgressAt = null;
       lastProgressTick = DateTime.now();
     });
-    web.loadRequest(Uri.parse(_embedUrl()));
+    if (source == PlaybackSource.zoryva) {
+      try {
+        final detail = await detailFuture.timeout(const Duration(seconds: 10));
+        if (!mounted || generation != loadGeneration) return;
+        animeMappings = detail.animeMappings;
+      } catch (_) {
+        // Missing mappings use the provider's TMDB movie/TV endpoint.
+      }
+    }
+    if (!mounted || generation != loadGeneration) return;
+    if (widget.playerPreview == null) {
+      try {
+        await web.loadRequest(Uri.parse(_embedUrl()));
+      } catch (_) {
+        if (mounted && generation == loadGeneration) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to open the player. Please try again.'),
+            ),
+          );
+        }
+      }
+    }
+    if (mounted && generation == loadGeneration) {
+      setState(() => loadingSource = false);
+    }
   }
+
+  void _selectSource(PlaybackSource next) {
+    if (next == source && playerPageReady) return;
+    if (position >= 5) unawaited(_persistProgress());
+    setState(() => source = next);
+    unawaited(_loadSelectedSource());
+  }
+
+  Widget _sourceSelector() => PopupMenuButton<PlaybackSource>(
+    tooltip: 'Playback source',
+    initialValue: source,
+    onSelected: _selectSource,
+    itemBuilder: (_) => [
+      for (final option in PlaybackSource.values)
+        CheckedPopupMenuItem(
+          value: option,
+          checked: source == option,
+          child: Text(option.label),
+        ),
+    ],
+    child: _ToolChip(
+      icon: Icons.dns_outlined,
+      label: loadingSource
+          ? 'Loading ${source.label}…'
+          : 'Source · ${source.label}',
+    ),
+  );
 
   void _selectEpisode({required int nextSeason, required int nextEpisode}) {
     if (position >= 5) unawaited(_persistProgress());
@@ -490,35 +462,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       position = 0;
       duration = 0;
       savedProgressBucket = 0;
-      notice = null;
       resumeSent = false;
       playerPageReady = false;
       playerReportedPlaying = null;
       lastExactProgressAt = null;
       lastProgressTick = DateTime.now();
     });
-    web.loadRequest(Uri.parse(_embedUrl()));
-  }
-
-  Future<void> _closeAdAndReturnToVideo() async {
-    try {
-      await web.runJavaScript(r'''
-        (() => {
-          const selectors = [
-            '[class*="popup" i]', '[id*="popup" i]',
-            '[class*="popunder" i]', '[id*="popunder" i]',
-            '[class*="ad-overlay" i]', '[id*="ad-overlay" i]',
-            'iframe[src*="doubleclick.net"]',
-            'iframe[src*="googlesyndication.com"]',
-            'iframe[src*="popads.net"]'
-          ];
-          document.querySelectorAll(selectors.join(',')).forEach((node) => node.remove());
-          document.querySelectorAll('video').forEach((video) => video.play().catch(() => {}));
-        })();
-      ''');
-    } catch (_) {
-      // Closing an ad must never reload or replace the selected provider.
-    }
+    unawaited(_loadSelectedSource());
   }
 
   @override
@@ -534,7 +484,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    loadTimer?.cancel();
     progressTimer?.cancel();
     if (position >= 5) unawaited(_persistProgress());
     unawaited(_restoreSystemUi());
@@ -543,8 +492,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final source = playbackSources[sourceIndex];
-    if (immersive) return _buildImmersivePlayer(context, source);
+    if (immersive) return _buildImmersivePlayer(context);
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -576,71 +524,15 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         top: false,
         child: ListView(
           children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Stack(
-                children: [
-                  WebViewWidget(controller: web),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: _PlayerOverlayButton(
-                      tooltip: 'Close ad',
-                      icon: Icons.close_rounded,
-                      onPressed: () => unawaited(_closeAdAndReturnToVideo()),
-                    ),
-                  ),
-                  if (notice != null)
-                    Positioned(
-                      top: 12,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(30),
-                            border: Border.all(color: Colors.white24),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 9,
-                            ),
-                            child: Text(
-                              notice!,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+            AspectRatio(aspectRatio: 16 / 9, child: _buildPlayerSurface()),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  PopupMenuButton<int>(
-                    onSelected: _selectSource,
-                    itemBuilder: (_) => [
-                      for (var i = 0; i < playbackSources.length; i++)
-                        PopupMenuItem(
-                          value: i,
-                          child: Text(playbackSources[i].name),
-                        ),
-                    ],
-                    child: _ToolChip(
-                      icon: Icons.dns_outlined,
-                      label: 'Servers  ${source.name}',
-                    ),
-                  ),
-                  if (widget.media.isSeries)
+                  _sourceSelector(),
+                  if (widget.media.isSeries) ...[
                     FutureBuilder<MediaDetail>(
                       future: detailFuture,
                       builder: (context, snapshot) => PopupMenuButton<int>(
@@ -660,7 +552,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                  if (widget.media.isSeries)
                     _ToolChip(
                       icon: Icons.skip_next,
                       label: 'Episode $episode',
@@ -669,6 +560,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                         nextEpisode: episode + 1,
                       ),
                     ),
+                  ],
                 ],
               ),
             ),
@@ -779,23 +671,50 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                       ],
                       const SizedBox(height: 22),
                       if (widget.controller.activeProfile != null)
-                        FilledButton.icon(
-                          onPressed: () =>
-                              widget.controller.toggleLibrary(widget.media),
-                          icon: Icon(
-                            widget.controller.libraryKeys.contains(
-                                  widget.media.key,
-                                )
-                                ? Icons.check
-                                : Icons.add,
-                          ),
-                          label: Text(
-                            widget.controller.libraryKeys.contains(
-                                  widget.media.key,
-                                )
-                                ? 'Saved to my list'
-                                : 'Add to my list',
-                          ),
+                        ListenableBuilder(
+                          listenable: widget.controller,
+                          builder: (context, _) {
+                            final saved = widget.controller.libraryKeys
+                                .contains(widget.media.key);
+                            final updating = widget.controller
+                                .isLibraryUpdating(widget.media.key);
+                            return FilledButton.icon(
+                              onPressed: updating
+                                  ? null
+                                  : () async {
+                                      try {
+                                        await widget.controller.toggleLibrary(
+                                          widget.media,
+                                        );
+                                      } catch (exception) {
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              exception.toString().replaceFirst(
+                                                'Exception: ',
+                                                '',
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              icon: updating
+                                  ? const SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(saved ? Icons.check : Icons.add),
+                              label: Text(
+                                saved ? 'Saved to my list' : 'Add to my list',
+                              ),
+                            );
+                          },
                         ),
                     ],
                   ),
@@ -808,133 +727,72 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildImmersivePlayer(BuildContext context, PlaybackSource source) =>
-      PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, result) {
-          if (!didPop) unawaited(_showDetails());
+  Widget _buildPlayerSurface() =>
+      widget.playerPreview ??
+      WebViewWidget(
+        controller: web,
+        // Keep swipes and slider drags inside the embedded player. Otherwise the
+        // surrounding ListView wins vertical drags meant for player settings.
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              WebViewWidget(controller: web),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: Row(
-                      children: [
-                        _PlayerOverlayButton(
-                          tooltip: 'Back',
-                          icon: Icons.arrow_back_rounded,
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Text(
-                            widget.media.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              shadows: [
-                                Shadow(color: Colors.black, blurRadius: 8),
-                              ],
-                            ),
-                          ),
-                        ),
-                        PopupMenuButton<int>(
-                          tooltip: 'Change server',
-                          onSelected: _selectSource,
-                          itemBuilder: (_) => [
-                            for (var i = 0; i < playbackSources.length; i++)
-                              PopupMenuItem(
-                                value: i,
-                                child: Text(playbackSources[i].name),
-                              ),
-                          ],
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: .74),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.white24),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.dns_outlined, size: 17),
-                                const SizedBox(width: 7),
-                                Text(
-                                  source.name,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 9),
-                        _PlayerOverlayButton(
-                          tooltip: 'Close ad',
-                          icon: Icons.close_rounded,
-                          onPressed: () =>
-                              unawaited(_closeAdAndReturnToVideo()),
-                        ),
-                        const SizedBox(width: 9),
-                        _PlayerOverlayButton(
-                          tooltip: 'Show details',
-                          icon: Icons.fullscreen_exit_rounded,
-                          onPressed: _showDetails,
-                        ),
-                      ],
+      );
+
+  Widget _buildImmersivePlayer(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) unawaited(_showDetails());
+    },
+    child: Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          _buildPlayerSurface(),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Row(
+                  children: [
+                    _PlayerOverlayButton(
+                      tooltip: 'Back',
+                      icon: Icons.arrow_back_rounded,
+                      onPressed: () => Navigator.pop(context),
                     ),
-                  ),
-                ),
-              ),
-              if (notice != null)
-                Positioned(
-                  left: 18,
-                  right: 18,
-                  bottom: 18,
-                  child: SafeArea(
-                    top: false,
-                    child: Center(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 9,
-                          ),
-                          child: Text(
-                            notice!,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        widget.media.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 8)],
                         ),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 9),
+                    _sourceSelector(),
+                    const SizedBox(width: 9),
+                    _PlayerOverlayButton(
+                      tooltip: 'Show details',
+                      icon: Icons.fullscreen_exit_rounded,
+                      onPressed: _showDetails,
+                    ),
+                  ],
                 ),
-            ],
+              ),
+            ),
           ),
-        ),
-      );
+        ],
+      ),
+    ),
+  );
 }
 
 class _PlayerOverlayButton extends StatelessWidget {

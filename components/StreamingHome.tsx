@@ -385,10 +385,8 @@ function SetupNotice({ reason }: { reason: string }) {
             Add a TMDB key to fill the catalog
           </h1>
           <p className="mb-[14px] text-sm leading-[1.7] text-[#a5a19b]">
-            VidSrc streams the video, but its <code>vapi</code> listing
-            endpoints are retired and return 404 on every mirror — so movie and
-            show listings come from TMDB instead. Playback still runs through
-            VidSrc&apos;s <code>embed</code> endpoints.
+            Movie and show listings come from TMDB. Playback is available
+            through CineSrc and Zoryva embeds.
           </p>
           <p className="mb-[14px] text-xs leading-[1.7] text-[#e0a04a]">
             {reason}
@@ -423,12 +421,10 @@ function SetupNotice({ reason }: { reason: string }) {
 function CatalogHome({
   hero,
   rails,
-  vidsrcMirror,
   localeCode,
 }: {
   hero: MediaDetail;
   rails: MediaRail[];
-  vidsrcMirror: string | null;
   localeCode: string;
 }) {
   const [active, setActive] = useState<NavItem>("Home");
@@ -998,7 +994,6 @@ function CatalogHome({
             )}
             <b>{totalTitles.toLocaleString()}</b>{" "}
             {kidsMode ? "kid-friendly titles" : "Movies and Series loaded"}
-            {vidsrcMirror ? ` (${new URL(vidsrcMirror).host})` : ""}
           </div>
         )}
 
@@ -1290,8 +1285,11 @@ function CatalogHome({
             >
               TMDB metadata ↗
             </a>
-            <a href="https://vidsrc.xyz/" target="_blank" rel="noreferrer">
-              VidSrc playback ↗
+            <a href="https://cinesrc.st/" target="_blank" rel="noreferrer">
+              CineSrc playback ↗
+            </a>
+            <a href="https://zoryva.me/" target="_blank" rel="noreferrer">
+              Zoryva playback ↗
             </a>
           </div>
         </div>
@@ -1320,7 +1318,6 @@ export function StreamingHome({ data }: { data: HomeData }) {
     <CatalogHome
       hero={data.hero}
       rails={data.rails}
-      vidsrcMirror={data.vidsrcMirror}
       localeCode={data.localeCode}
     />
   );

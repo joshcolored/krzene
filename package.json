@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:playback": "node --test tests/playback.test.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
