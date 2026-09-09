@@ -16,6 +16,7 @@ import { useAuth, type ContinueWatchingItem } from "./AuthProvider";
 import { CatalogSponsorModal } from "./CatalogSponsorModal";
 import { ProfileChooser } from "./ProfileChooser";
 import { AuthDialog } from "./AuthDialog";
+import { AppDownloadMenu } from "./AppDownloadMenu";
 
 const NAV_ITEMS = ["Home", "Movies", "Shows", "Anime", "Library"] as const;
 type NavItem = (typeof NAV_ITEMS)[number];
@@ -28,7 +29,6 @@ type IconName =
   | "library"
   | "search"
   | "language"
-  | "download"
   | "menu"
   | "chevron-left"
   | "chevron-right"
@@ -102,12 +102,6 @@ function UiIcon({ name }: { name: IconName }) {
         <>
           <circle cx="12" cy="12" r="8.5" />
           <path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5M12 3.5C9.8 5.8 8.7 8.6 8.7 12s1.1 6.2 3.3 8.5" />
-        </>
-      )}
-      {name === "download" && (
-        <>
-          <path d="M12 3.5v11M7.8 10.5 12 14.7l4.2-4.2" />
-          <path d="M5 16.5v3h14v-3" />
         </>
       )}
       {name === "menu" && (
@@ -705,28 +699,7 @@ function CatalogHome({
               ))}
             </select>
           </label>
-          <label
-            className="flex h-10 items-center gap-1.5 rounded-xl px-2 text-[#aaa6a0] transition hover:bg-white/8 hover:text-white max-[760px]:hidden"
-            title="Download the Krzene mobile app"
-          >
-            <span className="text-base" aria-hidden="true"><UiIcon name="download" /></span>
-            <span className="sr-only">Download mobile app</span>
-            <select
-              className="max-w-[92px] cursor-pointer border-0 bg-transparent text-xs font-bold text-inherit outline-none"
-              defaultValue=""
-              onChange={(event) => {
-                if (event.target.value) {
-                  window.open(event.target.value, "_blank", "noopener,noreferrer");
-                  event.target.selectedIndex = 0;
-                }
-              }}
-              aria-label="Download mobile app"
-            >
-              <option className="bg-[#171717] text-white" value="" disabled>Get app</option>
-              <option className="bg-[#171717] text-white" value="https://drive.google.com/file/d/1t5pi-N9qajckfxnMQtmOBFFTep48H95O/view?usp=sharing">Android</option>
-              <option className="bg-[#171717] text-white" value="https://testflight.apple.com/join/ZWXbXR8M">iOS · TestFlight</option>
-            </select>
-          </label>
+          <AppDownloadMenu />
           <button
             className={`flex h-10 cursor-pointer items-center gap-1.5 rounded-xl border-0 px-2.5 text-[13px] font-bold transition hover:bg-white/8 hover:text-white max-[760px]:px-[7px] max-[760px]:text-[21px] max-[760px]:[&_span]:hidden ${showSearch ? "bg-white/8 text-white" : "bg-transparent text-[#aaa6a0]"}`}
             onClick={() => setShowSearch((current) => !current)}
@@ -778,7 +751,7 @@ function CatalogHome({
             className="ui-menu-enter absolute top-[calc(100%_+_8px)] right-0 hidden w-[220px] origin-top-right flex-col gap-1 rounded-2xl border border-white/10 bg-[rgba(14,14,14,.98)] p-2 shadow-[0_24px_70px_rgba(0,0,0,.65)] backdrop-blur-2xl max-[760px]:flex"
             role="menu"
           >
-            <div className="mb-1 grid grid-cols-2 gap-1.5">
+            <div className="mb-1 flex flex-col gap-1.5">
               <label className="flex min-w-0 items-center gap-2 rounded-xl border border-white/8 bg-white/5 px-2.5 py-2.5">
                 <span className="shrink-0 text-lg text-[#aaa6a0]" aria-hidden="true"><UiIcon name="language" /></span>
                 <span className="sr-only">Catalog language</span>
@@ -795,25 +768,7 @@ function CatalogHome({
                   ))}
                 </select>
               </label>
-              <label className="flex min-w-0 items-center gap-2 rounded-xl border border-white/8 bg-white/5 px-2.5 py-2.5">
-                <span className="shrink-0 text-lg text-[#aaa6a0]" aria-hidden="true"><UiIcon name="download" /></span>
-                <span className="sr-only">Download mobile app</span>
-                <select
-                  className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-xs font-bold text-white outline-none"
-                  defaultValue=""
-                  onChange={(event) => {
-                    if (event.target.value) {
-                      window.open(event.target.value, "_blank", "noopener,noreferrer");
-                      event.target.selectedIndex = 0;
-                    }
-                  }}
-                  aria-label="Download mobile app"
-                >
-                  <option className="bg-[#171717] text-white" value="" disabled>Get app</option>
-                  <option className="bg-[#171717] text-white" value="https://drive.google.com/file/d/1t5pi-N9qajckfxnMQtmOBFFTep48H95O/view?usp=sharing">Android</option>
-                  <option className="bg-[#171717] text-white" value="https://testflight.apple.com/join/ZWXbXR8M">iOS</option>
-                </select>
-              </label>
+              <AppDownloadMenu mobile />
             </div>
             {visibleNavItems.map((item) => (
               <button
