@@ -48,6 +48,7 @@ export function embedUrl(
         : `/embed/tv/${positiveId(id)}/${selectedSeason}/${selectedEpisode}`;
     const url = new URL(path, host);
     url.searchParams.set("color", "#e50914");
+    url.searchParams.set("exit", "hide");
     return url.toString();
   }
   const url = new URL(`/embed/${kind}/${positiveId(id)}`, host);

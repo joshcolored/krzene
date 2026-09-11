@@ -32,8 +32,7 @@ class WatchScreen extends StatefulWidget {
 class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   late final WebViewController web;
   late Future<MediaDetail> detailFuture;
-  PlaybackSource source = PlaybackSource.cineSrc;
-  List<AnimeMapping> animeMappings = const [];
+  static const source = PlaybackSource.cineSrc;
   int loadGeneration = 0;
   bool loadingSource = false;
   int season = 1;
@@ -384,7 +383,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       season: season,
       episode: episode,
       resumeAt: position.floor(),
-      animeMappings: animeMappings,
     ).toString();
   }
 
@@ -399,15 +397,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       lastExactProgressAt = null;
       lastProgressTick = DateTime.now();
     });
-    if (source == PlaybackSource.zoryva) {
-      try {
-        final detail = await detailFuture.timeout(const Duration(seconds: 10));
-        if (!mounted || generation != loadGeneration) return;
-        animeMappings = detail.animeMappings;
-      } catch (_) {
-        // Missing mappings use the provider's TMDB movie/TV endpoint.
-      }
-    }
     if (!mounted || generation != loadGeneration) return;
     if (widget.playerPreview == null) {
       try {
@@ -426,33 +415,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       setState(() => loadingSource = false);
     }
   }
-
-  void _selectSource(PlaybackSource next) {
-    if (next == source && playerPageReady) return;
-    if (position >= 5) unawaited(_persistProgress());
-    setState(() => source = next);
-    unawaited(_loadSelectedSource());
-  }
-
-  Widget _sourceSelector() => PopupMenuButton<PlaybackSource>(
-    tooltip: 'Playback source',
-    initialValue: source,
-    onSelected: _selectSource,
-    itemBuilder: (_) => [
-      for (final option in PlaybackSource.values)
-        CheckedPopupMenuItem(
-          value: option,
-          checked: source == option,
-          child: Text(option.label),
-        ),
-    ],
-    child: _ToolChip(
-      icon: Icons.dns_outlined,
-      label: loadingSource
-          ? 'Loading ${source.label}…'
-          : 'Source · ${source.label}',
-    ),
-  );
 
   void _selectEpisode({required int nextSeason, required int nextEpisode}) {
     if (position >= 5) unawaited(_persistProgress());
@@ -531,7 +493,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _sourceSelector(),
                   if (widget.media.isSeries) ...[
                     FutureBuilder<MediaDetail>(
                       future: detailFuture,
@@ -776,8 +737,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 9),
-                    _sourceSelector(),
                     const SizedBox(width: 9),
                     _PlayerOverlayButton(
                       tooltip: 'Show details',

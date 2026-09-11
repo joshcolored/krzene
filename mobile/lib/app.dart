@@ -11,6 +11,7 @@ import 'controller.dart';
 import 'design.dart';
 import 'models.dart';
 import 'player.dart';
+import 'ios_navigation.dart';
 
 const _languages = {
   'en-US': 'English · United States',
@@ -824,14 +825,23 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ],
       ),
-      bottomNavigationBar: _KrzeneNavigation(
-        index: index,
-        onChanged: (value) => setState(() {
-          index = value;
-          headerVisible = true;
-          headerScrollTravel = 0;
-        }),
-      ),
+      bottomNavigationBar: Platform.isIOS
+          ? IosNavigation(
+              index: index,
+              onChanged: (value) => setState(() {
+                index = value;
+                headerVisible = true;
+                headerScrollTravel = 0;
+              }),
+            )
+          : _KrzeneNavigation(
+              index: index,
+              onChanged: (value) => setState(() {
+                index = value;
+                headerVisible = true;
+                headerScrollTravel = 0;
+              }),
+            ),
     );
   }
 }
@@ -2548,14 +2558,6 @@ class _CreditsScreen extends StatelessWidget {
         (
           'CineSrc',
           'Embedded playback is provided through CineSrc. The CineSrc name and branding belong to their respective owners. This acknowledgement does not imply endorsement or ownership of the films and shows available through the service.\n\ncinesrc.st',
-        ),
-        (
-          'Zoryva',
-          'Zoryva provides an alternative embedded player. Its name, branding, and third-party content belong to their respective rights holders.\n\nzoryva.me',
-        ),
-        (
-          'Anime ID mappings',
-          'TMDB-to-AniList episode mappings use the community-maintained AniBridge mappings dataset. Coverage may be incomplete; unmatched titles use TMDB playback.\n\ngithub.com/anibridge/anibridge-mappings',
         ),
         (
           'Content ownership',

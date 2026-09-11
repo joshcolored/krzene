@@ -25,9 +25,9 @@ test('only CineSrc and Zoryva are selectable, CineSrc stays default', () => {
 });
 test('Zoryva movie/TV URLs use TMDB IDs and encoded theme color', () => {
   assert.equal(embedUrl('movie', 129, null, null, { provider: 'zoryva' }),
-    'https://zoryva.me/embed/movie/129?color=%23e50914');
+    'https://zoryva.me/embed/movie/129?color=%23e50914&exit=hide');
   assert.equal(embedUrl('tv', 1429, 2, 3, { provider: 'zoryva' }),
-    'https://zoryva.me/embed/tv/1429/2/3?color=%23e50914');
+    'https://zoryva.me/embed/tv/1429/2/3?color=%23e50914&exit=hide');
   assert.throws(() => embedUrl('tv', 'tt123', 1, 1));
 });
 test('CineSrc resume and episode syntax is unchanged', () => {
@@ -45,7 +45,7 @@ test('season/cour and episode offsets map to AniList, not TMDB IDs', () => {
   const mapped = resolveAnimeEpisode(mappings, 3, 14);
   assert.deepEqual(mapped, { anilistId: 104578, episode: 2 });
   assert.equal(embedUrl('tv', 1429, 1, mapped.episode, { provider: 'zoryva', anilistId: mapped.anilistId }),
-    'https://zoryva.me/embed/anime/104578/1/2?color=%23e50914');
+    'https://zoryva.me/embed/anime/104578/1/2?color=%23e50914&exit=hide');
   assert.equal(resolveAnimeEpisode(mappings, 4, 1), null);
   assert.equal(resolveAnimeEpisode(mappings, 3, 23), null);
 });
