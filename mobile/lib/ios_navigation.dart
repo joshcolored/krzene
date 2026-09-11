@@ -33,9 +33,15 @@ class _IosNavigationState extends State<IosNavigation> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.fromLTRB(
+      MediaQuery.paddingOf(context).left + 12,
+      0,
+      MediaQuery.paddingOf(context).right + 12,
+      // The native tab bar also supplies spacing inside its floating capsule.
+      // Lower the host by 12 points while retaining home-indicator clearance.
+      (MediaQuery.paddingOf(context).bottom - 12).clamp(8.0, double.infinity),
+    ),
     child: SizedBox(
       // UITabBar reserves space around its floating glass capsule internally.
       // Give that layout room so the icon and label aren't clipped by the lens.
