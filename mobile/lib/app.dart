@@ -14,6 +14,7 @@ import 'player.dart';
 import 'ios_navigation.dart';
 import 'ios_genre_menu.dart';
 import 'ios_search_bar.dart';
+import 'welcome.dart';
 
 const _languages = {
   'en-US': 'English · United States',
@@ -88,33 +89,38 @@ class _KrzeneAppState extends State<KrzeneApp> {
     title: 'Krzene',
     theme: krzeneTheme(),
     home: KrzeneLaunchGate(
-      child: AnimatedBuilder(
-        animation: controller,
-        builder: (context, child) {
-          if (!controller.initialized) {
-            return const ColoredBox(
-              color: krzeneBackground,
-              child: Center(child: CircularProgressIndicator()),
+      child: WelcomeGate(
+        builder: (context) => AnimatedBuilder(
+          animation: controller,
+          builder: (context, child) {
+            if (!controller.initialized) {
+              return const ColoredBox(
+                color: krzeneBackground,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 420),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: controller.passwordRecoveryMode
+                  ? _ChangePasswordScreen(
+                      key: const ValueKey('password-recovery'),
+                      controller: controller,
+                      passwordRecovery: true,
+                    )
+                  : controller.signedIn
+                  ? HomeShell(
+                      key: const ValueKey('home'),
+                      controller: controller,
+                    )
+                  : KrzeneLoginPage(
+                      key: const ValueKey('login'),
+                      controller: controller,
+                    ),
             );
-          }
-          return AnimatedSwitcher(
-            duration: const Duration(milliseconds: 420),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            child: controller.passwordRecoveryMode
-                ? _ChangePasswordScreen(
-                    key: const ValueKey('password-recovery'),
-                    controller: controller,
-                    passwordRecovery: true,
-                  )
-                : controller.signedIn
-                ? HomeShell(key: const ValueKey('home'), controller: controller)
-                : KrzeneLoginPage(
-                    key: const ValueKey('login'),
-                    controller: controller,
-                  ),
-          );
-        },
+          },
+        ),
       ),
     ),
   );
