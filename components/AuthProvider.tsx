@@ -424,7 +424,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     season: number | null = null,
     episode: number | null = null,
   ) => {
-    if (!user || !activeProfile || position < 5) return;
+    const episodeSelection = season != null && episode != null;
+    if (!user || !activeProfile || (position < 5 && !episodeSelection)) return;
     const supabase = createClient();
     if (!supabase) return;
 

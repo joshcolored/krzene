@@ -32,6 +32,7 @@ class WatchScreen extends StatefulWidget {
 class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   late final WebViewController web;
   late Future<MediaDetail> detailFuture;
+  late Future<List<EpisodeInfo>> episodesFuture;
   static const source = PlaybackSource.cineSrc;
   int loadGeneration = 0;
   bool loadingSource = false;
@@ -72,6 +73,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       widget.media,
       widget.controller.language,
     );
+    episodesFuture = widget.media.isSeries
+        ? widget.controller.catalogApi.seasonEpisodes(
+            widget.media.tmdbId,
+            season,
+            widget.controller.language,
+          )
+        : Future.value(const <EpisodeInfo>[]);
     if (widget.playerPreview == null) {
       web = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -419,6 +427,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   void _selectEpisode({required int nextSeason, required int nextEpisode}) {
     if (position >= 5) unawaited(_persistProgress());
     setState(() {
+      if (nextSeason != season) {
+        episodesFuture = widget.controller.catalogApi.seasonEpisodes(
+          widget.media.tmdbId,
+          nextSeason,
+          widget.controller.language,
+        );
+      }
       season = nextSeason;
       episode = nextEpisode;
       position = 0;
@@ -430,6 +445,16 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       lastExactProgressAt = null;
       lastProgressTick = DateTime.now();
     });
+    unawaited(
+      widget.controller.saveWatchProgress(
+        widget.media,
+        0,
+        0,
+        season: nextSeason,
+        episode: nextEpisode,
+        force: true,
+      ),
+    );
     unawaited(_loadSelectedSource());
   }
 
@@ -487,44 +512,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         child: ListView(
           children: [
             AspectRatio(aspectRatio: 16 / 9, child: _buildPlayerSurface()),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (widget.media.isSeries) ...[
-                    FutureBuilder<MediaDetail>(
-                      future: detailFuture,
-                      builder: (context, snapshot) => PopupMenuButton<int>(
-                        onSelected: (value) =>
-                            _selectEpisode(nextSeason: value, nextEpisode: 1),
-                        itemBuilder: (_) => [
-                          for (final item
-                              in snapshot.data?.seasons ?? const <SeasonInfo>[])
-                            PopupMenuItem(
-                              value: item.number,
-                              child: Text(item.name),
-                            ),
-                        ],
-                        child: _ToolChip(
-                          icon: Icons.video_collection_outlined,
-                          label: 'Season $season',
-                        ),
-                      ),
-                    ),
-                    _ToolChip(
-                      icon: Icons.skip_next,
-                      label: 'Episode $episode',
-                      onTap: () => _selectEpisode(
-                        nextSeason: season,
-                        nextEpisode: episode + 1,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
             FutureBuilder<MediaDetail>(
               future: detailFuture,
               builder: (context, snapshot) {
@@ -583,6 +570,23 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
                           color: Colors.white60,
                         ),
                       ),
+                      if (widget.media.isSeries && detail != null) ...[
+                        const SizedBox(height: 34),
+                        _EpisodeBrowser(
+                          seasons: detail.seasons,
+                          episodes: episodesFuture,
+                          selectedSeason: season,
+                          selectedEpisode: episode,
+                          onSelect: (nextSeason, nextEpisode) => _selectEpisode(
+                            nextSeason: nextSeason,
+                            nextEpisode: nextEpisode,
+                          ),
+                        ),
+                      ],
+                      if (detail != null && detail.cast.isNotEmpty) ...[
+                        const SizedBox(height: 34),
+                        _CastGrid(cast: detail.cast),
+                      ],
                       if (watchNext.isNotEmpty) ...[
                         const SizedBox(height: 30),
                         Row(
@@ -778,6 +782,289 @@ class _PlayerOverlayButton extends StatelessWidget {
   );
 }
 
+class _EpisodeBrowser extends StatelessWidget {
+  const _EpisodeBrowser({
+    required this.seasons,
+    required this.episodes,
+    required this.selectedSeason,
+    required this.selectedEpisode,
+    required this.onSelect,
+  });
+  final List<SeasonInfo> seasons;
+  final Future<List<EpisodeInfo>> episodes;
+  final int selectedSeason;
+  final int selectedEpisode;
+  final void Function(int season, int episode) onSelect;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Episodes',
+        style: Theme.of(
+          context,
+        ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+      ),
+      const SizedBox(height: 14),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final item in seasons) ...[
+              ChoiceChip(
+                label: Text(item.name),
+                selected: item.number == selectedSeason,
+                onSelected: (_) => onSelect(item.number, 1),
+                selectedColor: Colors.white,
+                labelStyle: TextStyle(
+                  color: item.number == selectedSeason
+                      ? Colors.black
+                      : Colors.white70,
+                  fontWeight: FontWeight.w800,
+                ),
+                backgroundColor: const Color(0xff151515),
+                side: BorderSide.none,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+      FutureBuilder<List<EpisodeInfo>>(
+        future: episodes,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(28),
+                child: CircularProgressIndicator(),
+              ),
+            );
+          }
+          final items = snapshot.data ?? const <EpisodeInfo>[];
+          if (items.isEmpty) {
+            return const Text(
+              'Episode information is temporarily unavailable.',
+              style: TextStyle(color: Colors.white54),
+            );
+          }
+          return Column(
+            children: [
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _EpisodeCard(
+                    item: item,
+                    selected: item.episodeNumber == selectedEpisode,
+                    onTap: () =>
+                        onSelect(item.seasonNumber, item.episodeNumber),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    ],
+  );
+}
+
+class _EpisodeCard extends StatelessWidget {
+  const _EpisodeCard({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+  final EpisodeInfo item;
+  final bool selected;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected ? const Color(0xff211d12) : const Color(0xff171717),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(18),
+      side: BorderSide(
+        color: selected ? const Color(0xffffbd36) : Colors.white10,
+      ),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1.85,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (item.still != null)
+                  Image.network(
+                    item.still!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) =>
+                        const ColoredBox(color: Color(0xff202020)),
+                  )
+                else
+                  const ColoredBox(color: Color(0xff202020)),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black54],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      child: Text(
+                        'S${item.seasonNumber} E${item.episodeNumber}',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ),
+                if (selected)
+                  const Center(
+                    child: CircleAvatar(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      child: Icon(Icons.play_arrow_rounded),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.name,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  [
+                    if (item.airDate != null) item.airDate!,
+                    if (item.runtime != null) '${item.runtime}m',
+                  ].join(' · '),
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                if (item.overview.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    item.overview,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white60, height: 1.45),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CastGrid extends StatelessWidget {
+  const _CastGrid({required this.cast});
+  final List<CastMember> cast;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Cast',
+        style: Theme.of(
+          context,
+        ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+      ),
+      const SizedBox(height: 18),
+      GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: cast.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: .68,
+          crossAxisSpacing: 14,
+          mainAxisSpacing: 16,
+        ),
+        itemBuilder: (context, index) {
+          final person = cast[index];
+          return Column(
+            children: [
+              AspectRatio(
+                aspectRatio: 1,
+                child: ClipOval(
+                  child: person.profile == null
+                      ? ColoredBox(
+                          color: const Color(0xff202020),
+                          child: Center(
+                            child: Text(
+                              person.name.characters.first,
+                              style: const TextStyle(fontSize: 26),
+                            ),
+                          ),
+                        )
+                      : Image.network(
+                          person.profile!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              const ColoredBox(color: Color(0xff202020)),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                person.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                person.character,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54, fontSize: 10),
+              ),
+            ],
+          );
+        },
+      ),
+    ],
+  );
+}
+
 class _WatchNextCard extends StatelessWidget {
   const _WatchNextCard({required this.media, required this.onTap});
 
@@ -852,38 +1139,6 @@ class _WatchNextFallback extends StatelessWidget {
             fontWeight: FontWeight.w800,
           ),
         ),
-      ),
-    ),
-  );
-}
-
-class _ToolChip extends StatelessWidget {
-  const _ToolChip({required this.icon, required this.label, this.onTap});
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(10),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xff171717),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 17),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-          ),
-        ],
       ),
     ),
   );

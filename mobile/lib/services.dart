@@ -144,6 +144,20 @@ class CatalogApi {
     }
   }
 
+  Future<List<EpisodeInfo>> seasonEpisodes(
+    int tmdbId,
+    int season,
+    String language,
+  ) async {
+    final payload = await _get(
+      _uri('/api/title/tv/$tmdbId/season/$season', {'lang': language}),
+    );
+    return (payload['episodes'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(EpisodeInfo.fromJson)
+        .toList();
+  }
+
   MediaDetail _asDetail(
     Media media, {
     List<Media> recommendations = const [],

@@ -6,7 +6,7 @@
 
 import type { HomeData, MediaRail } from "./media";
 import { catalogLocale } from "./catalog-locale";
-import { fetchDeepList, fetchDetail, fetchList, genreMap, isConfigured } from "./tmdb";
+import { fetchDeepList, fetchDetail, fetchList, fetchWatchProviderShelves, genreMap, isConfigured } from "./tmdb";
 
 /** Japanese animation, for the Anime tab. */
 const ANIME_PARAMS = {
@@ -48,6 +48,7 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
     regionalMovies,
     kidsMovies,
     kidsShows,
+    watchProviders,
     kidsAnimation,
   ] = await Promise.all([
     deepList("/trending/all/week", "movie"),
@@ -77,6 +78,7 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
       include_adult: "false",
       sort_by: "popularity.desc",
     }),
+    fetchWatchProviderShelves(locale.countryCode, locale.tmdbLanguage, genres),
     deepList("/discover/tv", "tv", {
       with_genres: "16,10762",
       include_adult: "false",
@@ -96,7 +98,7 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
   const lead = candidates.find((item) => item.backdrop) ?? candidates[0];
   const hero =
     (await fetchDetail(lead.kind, lead.tmdbId, locale.tmdbLanguage)) ??
-    { ...lead, imdbId: null, runtime: "", tagline: "", seasons: [], recommendations: [] };
+    { ...lead, imdbId: null, runtime: "", tagline: "", seasons: [], cast: [], recommendations: [] };
 
   const rails: MediaRail[] = [
     { id: "trending", kicker: "JUST FOR YOU", heading: "Trending this week", kind: "mixed", items: trending },
@@ -120,6 +122,7 @@ export async function getHomeData(localeCode?: string | null): Promise<HomeData>
     configured: true,
     hero,
     rails: rails.filter((rail) => rail.items.length > 0),
+    watchProviders,
     localeCode: locale.code,
   };
 }

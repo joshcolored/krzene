@@ -59,12 +59,11 @@ private final class KrzeneNavigationView: NSObject, FlutterPlatformView, UITabBa
     ])
     // Display Search at the right, as in the reference; tags retain Flutter's page indices.
     var items: [UITabBarItem] = []
-    for (title, symbol, index) in [("Browse", "house.fill", 0),
-                                   ("Library", "books.vertical.fill", 2),
-                                   ("Profile", "person.crop.circle.fill", 3),
-                                   ("Search", "magnifyingglass", 1)] {
-      let image = UIImage(systemName: symbol,
-                          withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .regular))
+    for (title, asset, index) in [("Browse", "NavBrowse", 0),
+                                  ("Library", "NavLibrary", 2),
+                                  ("Profile", "NavProfile", 3),
+                                  ("Search", "NavSearch", 1)] {
+      let image = resizedTemplate(named: asset, size: CGSize(width: 18, height: 18))
       let item = UITabBarItem(title: title, image: image, tag: index)
       let titleAttributes: [NSAttributedString.Key: Any] = [
         .font: UIFont.systemFont(ofSize: 10, weight: .medium)
@@ -84,6 +83,13 @@ private final class KrzeneNavigationView: NSObject, FlutterPlatformView, UITabBa
       self?.select(index)
       result(nil)
     }
+  }
+
+  private func resizedTemplate(named name: String, size: CGSize) -> UIImage? {
+    guard let source = UIImage(named: name) else { return nil }
+    let renderer = UIGraphicsImageRenderer(size: size)
+    return renderer.image { _ in source.draw(in: CGRect(origin: .zero, size: size)) }
+      .withRenderingMode(.alwaysTemplate)
   }
 
   func view() -> UIView { root }

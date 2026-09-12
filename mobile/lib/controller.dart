@@ -242,9 +242,10 @@ class KrzeneController extends ChangeNotifier {
     double duration, {
     int? season,
     int? episode,
+    bool force = false,
   }) async {
     final profile = activeProfile;
-    if (profile == null || position < 5) return;
+    if (profile == null || (!force && position < 5)) return;
     if (profile.isKids && !media.isKidsSafe) return;
 
     final completed = duration > 0 && position / duration >= .95;

@@ -34,6 +34,7 @@ function placeholderDetail(kind: MediaKind, tmdbId: number): MediaDetail {
     // Without metadata we cannot know the real season list; offer season 1 so
     // the episode picker still drives embed/tv/{id}/{season}/{episode}.
     seasons: kind === "tv" ? [{ number: 1, name: "Season 1", episodeCount: 24 }] : [],
+    cast: [],
     recommendations: [],
   };
 }

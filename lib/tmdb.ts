@@ -15,7 +15,9 @@ import {
   type Media,
   type MediaDetail,
   type MediaKind,
+  type EpisodeSummary,
   type SeasonSummary,
+  type WatchProviderShelf,
 } from "./media";
 
 const API = "https://api.themoviedb.org/3";
@@ -112,7 +114,11 @@ type TmdbDetail = TmdbItem & {
   external_ids?: { imdb_id?: string | null };
   recommendations?: TmdbPage;
   similar?: TmdbPage;
+  credits?: { cast?: { id: number; name?: string; character?: string; profile_path?: string | null; order?: number }[] };
 };
+
+type TmdbSeason = { episodes?: { id: number; season_number?: number; episode_number?: number; name?: string; overview?: string; air_date?: string | null; still_path?: string | null; runtime?: number | null }[] };
+type TmdbProvider = { provider_id: number; provider_name: string; logo_path?: string | null };
 
 /* ------------------------------------------------------------------ *
  * Normalization
@@ -180,6 +186,63 @@ function normalizeList(
 function dedupe(items: Media[]): Media[] {
   const seen = new Set<string>();
   return items.filter((item) => (seen.has(item.key) ? false : (seen.add(item.key), true)));
+}
+
+export async function fetchSeasonEpisodes(
+  tmdbId: number,
+  season: number,
+  language = "en-US",
+): Promise<EpisodeSummary[] | null> {
+  const result = await tmdb<TmdbSeason>(`/tv/${tmdbId}/season/${season}`, { language });
+  if (!result) return null;
+  return (result.episodes ?? []).map((episode) => ({
+    id: episode.id,
+    seasonNumber: episode.season_number ?? season,
+    episodeNumber: episode.episode_number ?? 0,
+    name: episode.name?.trim() || `Episode ${episode.episode_number ?? ""}`.trim(),
+    overview: episode.overview?.trim() ?? "",
+    airDate: episode.air_date ?? null,
+    still: imageUrl(episode.still_path, "w780"),
+    runtime: episode.runtime ?? null,
+  })).filter((episode) => episode.episodeNumber > 0);
+}
+
+export async function fetchWatchProviderShelves(
+  countryCode: string,
+  language: string,
+  genres: Map<number, string>,
+): Promise<WatchProviderShelf[]> {
+  const [movieProviders, tvProviders] = await Promise.all([
+    tmdb<{ results?: TmdbProvider[] }>("/watch/providers/movie", { watch_region: countryCode, language }),
+    tmdb<{ results?: TmdbProvider[] }>("/watch/providers/tv", { watch_region: countryCode, language }),
+  ]);
+  const providers = [...(movieProviders?.results ?? []), ...(tvProviders?.results ?? [])];
+  const wanted = ["Netflix", "Disney Plus", "Max", "HBO Max", "Amazon Prime Video", "Apple TV Plus"];
+  const selected: TmdbProvider[] = [];
+  for (const name of wanted) {
+    const provider = providers.find((item) => item.provider_name === name);
+    if (provider && !selected.some((item) => item.provider_id === provider.provider_id)) selected.push(provider);
+  }
+  return (await Promise.all(selected.slice(0, 5).map(async (provider) => {
+    const params = {
+      watch_region: countryCode,
+      with_watch_providers: provider.provider_id,
+      with_watch_monetization_types: "flatrate|free|ads",
+      include_adult: "false",
+      sort_by: "popularity.desc",
+      language,
+    };
+    const [movies, shows] = await Promise.all([
+      fetchList("/discover/movie", "movie", genres, params),
+      fetchList("/discover/tv", "tv", genres, params),
+    ]);
+    return {
+      id: provider.provider_id,
+      name: provider.provider_name === "Disney Plus" ? "Disney+" : provider.provider_name,
+      logo: imageUrl(provider.logo_path, "w154"),
+      items: dedupe([...movies.slice(0, 10), ...shows.slice(0, 10)]).slice(0, 16),
+    };
+  }))).filter((shelf) => shelf.items.length > 0);
 }
 
 /* ------------------------------------------------------------------ *
@@ -268,7 +331,7 @@ export async function fetchDetailOutcome(
 ): Promise<DetailOutcome> {
   const genres = await genreMap(language);
   const { data: detail, missing } = await tmdbRaw<TmdbDetail>(`/${kind}/${tmdbId}`, {
-    append_to_response: "external_ids,recommendations,similar",
+    append_to_response: "external_ids,recommendations,similar,credits",
     language,
   });
   if (!detail) return missing ? { status: "missing" } : { status: "unavailable" };
@@ -292,6 +355,15 @@ export async function fetchDetailOutcome(
       runtime: runtimeLabel(detail, kind),
       tagline: detail.tagline?.trim() ?? "",
       seasons: kind === "tv" ? seasonSummaries(detail) : [],
+      cast: (detail.credits?.cast ?? [])
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+        .slice(0, 12)
+        .map((person) => ({
+          id: person.id,
+          name: person.name?.trim() || "Unknown",
+          character: person.character?.trim() || "",
+          profile: imageUrl(person.profile_path, "w342"),
+        })),
       recommendations: related.slice(0, 8),
     },
   };

@@ -72,6 +72,7 @@ class MediaDetail extends Media {
     required this.tagline,
     required this.seasons,
     required this.recommendations,
+    this.cast = const [],
     this.animeMappings = const [],
     super.year,
   });
@@ -80,6 +81,7 @@ class MediaDetail extends Media {
   final String tagline;
   final List<SeasonInfo> seasons;
   final List<Media> recommendations;
+  final List<CastMember> cast;
   final List<AnimeMapping> animeMappings;
 
   factory MediaDetail.fromJson(Map<String, dynamic> json) {
@@ -105,6 +107,10 @@ class MediaDetail extends Media {
           .whereType<Map<String, dynamic>>()
           .map(Media.fromJson)
           .toList(),
+      cast: (json['cast'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(CastMember.fromJson)
+          .toList(),
       animeMappings: (json['animeMappings'] as List? ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(AnimeMapping.fromJson)
@@ -112,6 +118,57 @@ class MediaDetail extends Media {
           .toList(),
     );
   }
+}
+
+class EpisodeInfo {
+  const EpisodeInfo({
+    required this.id,
+    required this.seasonNumber,
+    required this.episodeNumber,
+    required this.name,
+    required this.overview,
+    this.airDate,
+    this.still,
+    this.runtime,
+  });
+  final int id;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String name;
+  final String overview;
+  final String? airDate;
+  final String? still;
+  final int? runtime;
+
+  factory EpisodeInfo.fromJson(Map<String, dynamic> json) => EpisodeInfo(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    seasonNumber: (json['seasonNumber'] as num?)?.toInt() ?? 1,
+    episodeNumber: (json['episodeNumber'] as num?)?.toInt() ?? 1,
+    name: json['name'] as String? ?? 'Episode',
+    overview: json['overview'] as String? ?? '',
+    airDate: json['airDate'] as String?,
+    still: json['still'] as String?,
+    runtime: (json['runtime'] as num?)?.toInt(),
+  );
+}
+
+class CastMember {
+  const CastMember({
+    required this.id,
+    required this.name,
+    required this.character,
+    this.profile,
+  });
+  final int id;
+  final String name;
+  final String character;
+  final String? profile;
+  factory CastMember.fromJson(Map<String, dynamic> json) => CastMember(
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    name: json['name'] as String? ?? 'Unknown',
+    character: json['character'] as String? ?? '',
+    profile: json['profile'] as String?,
+  );
 }
 
 class AnimeMapping {
@@ -186,11 +243,35 @@ class MediaRail {
   );
 }
 
+class WatchProviderShelf {
+  const WatchProviderShelf(this.id, this.name, this.logo, this.items);
+  final int id;
+  final String name;
+  final String? logo;
+  final List<Media> items;
+  factory WatchProviderShelf.fromJson(Map<String, dynamic> json) =>
+      WatchProviderShelf(
+        (json['id'] as num?)?.toInt() ?? 0,
+        json['name'] as String? ?? 'Provider',
+        json['logo'] as String?,
+        (json['items'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(Media.fromJson)
+            .toList(),
+      );
+}
+
 class HomeCatalog {
-  const HomeCatalog(this.hero, this.rails, this.localeCode);
+  const HomeCatalog(
+    this.hero,
+    this.rails,
+    this.localeCode, [
+    this.watchProviders = const [],
+  ]);
   final MediaDetail hero;
   final List<MediaRail> rails;
   final String localeCode;
+  final List<WatchProviderShelf> watchProviders;
 
   factory HomeCatalog.fromJson(Map<String, dynamic> json) {
     if (json['configured'] != true) {
@@ -203,6 +284,10 @@ class HomeCatalog {
           .map(MediaRail.fromJson)
           .toList(),
       json['localeCode'] as String? ?? 'en-US',
+      (json['watchProviders'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(WatchProviderShelf.fromJson)
+          .toList(),
     );
   }
 }

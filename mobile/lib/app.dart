@@ -667,6 +667,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   late int index;
   String? browseGenre;
+  int? browseProviderId;
   bool headerVisible = true;
   double headerScrollTravel = 0;
   double featureHeight = 530;
@@ -731,6 +732,8 @@ class _HomeShellState extends State<HomeShell> {
       BrowsePage(
         controller: controller,
         selectedGenre: activeBrowseGenre,
+        selectedProviderId: browseProviderId,
+        onProviderSelected: (value) => setState(() => browseProviderId = value),
         featureKey: featureKey,
       ),
       SearchPage(controller: controller),
@@ -917,7 +920,7 @@ class _KrzeneNavigation extends StatelessWidget {
               ),
               child: KrzeneIcon(
                 items[itemIndex].$1,
-                size: 19,
+                size: 23,
                 color: selected ? krzeneRed : krzeneMuted,
               ),
             ),
@@ -972,7 +975,7 @@ class _KrzeneNavigation extends StatelessWidget {
                 curve: Curves.easeOutBack,
                 child: const KrzeneIcon(
                   KrzeneGlyph.profile,
-                  size: 19,
+                  size: 23,
                   color: Colors.white,
                 ),
               ),
@@ -1167,10 +1170,14 @@ class BrowsePage extends StatelessWidget {
     super.key,
     required this.controller,
     this.selectedGenre,
+    this.selectedProviderId,
+    this.onProviderSelected,
     this.featureKey,
   });
   final KrzeneController controller;
   final String? selectedGenre;
+  final int? selectedProviderId;
+  final ValueChanged<int>? onProviderSelected;
   final Key? featureKey;
 
   @override
@@ -1227,6 +1234,28 @@ class BrowsePage extends StatelessWidget {
         : availableMedia
               .where((item) => _matchesGenre(item, activeGenre))
               .firstOrNull;
+    final providers = catalog.watchProviders
+        .map(
+          (provider) => WatchProviderShelf(
+            provider.id,
+            provider.name,
+            provider.logo,
+            provider.items
+                .where(
+                  (item) =>
+                      (!kids || item.isKidsSafe) &&
+                      _matchesGenre(item, activeGenre),
+                )
+                .toList(),
+          ),
+        )
+        .where((provider) => provider.items.isNotEmpty)
+        .toList();
+    final activeProvider = providers.firstWhere(
+      (provider) => provider.id == selectedProviderId,
+      orElse: () =>
+          providers.firstOrNull ?? const WatchProviderShelf(0, '', null, []),
+    );
     return RefreshIndicator(
       onRefresh: controller.loadCatalog,
       child: ListView(
@@ -1242,6 +1271,13 @@ class BrowsePage extends StatelessWidget {
               controller.activeProfile != null &&
               controller.continueWatching.isNotEmpty)
             _ContinueRail(controller: controller),
+          if (activeProvider.id != 0)
+            _WatchProviderSection(
+              providers: providers,
+              selected: activeProvider,
+              controller: controller,
+              onSelected: onProviderSelected ?? (_) {},
+            ),
           for (final rail in rails)
             _RailView(rail: rail, controller: controller),
           const SizedBox(height: 112),
@@ -1422,6 +1458,98 @@ class _RailView extends StatelessWidget {
             itemBuilder: (_, index) =>
                 _MediaCard(media: rail.items[index], controller: controller),
           ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _WatchProviderSection extends StatelessWidget {
+  const _WatchProviderSection({
+    required this.providers,
+    required this.selected,
+    required this.controller,
+    required this.onSelected,
+  });
+  final List<WatchProviderShelf> providers;
+  final WatchProviderShelf selected;
+  final KrzeneController controller;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 34),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 18),
+          child: Text(
+            'Watch on',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 68,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            scrollDirection: Axis.horizontal,
+            itemCount: providers.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final provider = providers[index];
+              final active = provider.id == selected.id;
+              return InkWell(
+                onTap: () => onSelected(provider.id),
+                borderRadius: BorderRadius.circular(16),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 132,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: active ? Colors.white : const Color(0xff191919),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: active ? Colors.white : Colors.white12,
+                    ),
+                  ),
+                  child: provider.logo == null
+                      ? Center(
+                          child: Text(
+                            provider.name,
+                            style: TextStyle(
+                              color: active ? Colors.black : Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        )
+                      : Image.network(
+                          provider.logo!,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => Center(
+                            child: Text(
+                              provider.name,
+                              style: TextStyle(
+                                color: active ? Colors.black : Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+              );
+            },
+          ),
+        ),
+        _RailView(
+          rail: MediaRail(
+            'provider-${selected.id}',
+            'STREAMING PICKS',
+            'Popular on ${selected.name}',
+            selected.items,
+          ),
+          controller: controller,
         ),
       ],
     ),

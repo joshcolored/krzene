@@ -9,6 +9,7 @@ import {
   type Media,
   type MediaDetail,
   type MediaRail,
+  type WatchProviderShelf,
 } from "@/lib/media";
 import { CATALOG_LOCALES, catalogLocale } from "@/lib/catalog-locale";
 import { AdSenseUnit } from "./AdSenseUnit";
@@ -422,10 +423,12 @@ function SetupNotice({ reason }: { reason: string }) {
 function CatalogHome({
   hero,
   rails,
+  watchProviders,
   localeCode,
 }: {
   hero: MediaDetail;
   rails: MediaRail[];
+  watchProviders: WatchProviderShelf[];
   localeCode: string;
 }) {
   const [active, setActive] = useState<NavItem>("Home");
@@ -438,6 +441,7 @@ function CatalogHome({
   const [searching, setSearching] = useState(false);
   const [showProfiles, setShowProfiles] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+  const [providerId, setProviderId] = useState<number | null>(watchProviders[0]?.id ?? null);
   const searchToken = useRef(0);
   const activeLocale = catalogLocale(localeCode);
   const {
@@ -610,6 +614,10 @@ function CatalogHome({
     catalogRails
       .find((rail) => rail.id === (kidsMode ? "kids-trending" : "trending"))
       ?.items.slice(0, 10) ?? [];
+  const providerShelves = kidsMode
+    ? watchProviders.map((shelf) => ({ ...shelf, items: shelf.items.filter(isKidsMedia) })).filter((shelf) => shelf.items.length > 0)
+    : watchProviders;
+  const activeProvider = providerShelves.find((shelf) => shelf.id === providerId) ?? providerShelves[0];
   const heroArt = activeHero.backdrop ?? activeHero.poster;
   const trimmedQuery = query.trim();
   const searchMode = showSearch || Boolean(trimmedQuery);
@@ -1197,6 +1205,22 @@ function CatalogHome({
                 </div>
               </section>
             )}
+            {active === "Home" && activeProvider && (
+              <section className="mt-[64px] max-[760px]:mt-[48px]">
+                <h2 className="font-display text-[26px] font-extrabold">Watch on</h2>
+                <div className="mt-5 flex gap-3 overflow-x-auto pb-2 max-[760px]:mr-[-20px] max-[760px]:pr-5">
+                  {providerShelves.map((provider) => (
+                    <button key={provider.id} type="button" onClick={() => setProviderId(provider.id)} className={`flex h-16 min-w-32 shrink-0 items-center justify-center rounded-2xl border px-5 transition ${provider.id === activeProvider.id ? "border-white bg-white" : "border-white/10 bg-[#181818] hover:border-white/25"}`} aria-pressed={provider.id === activeProvider.id}>
+                      {provider.logo ? <img src={provider.logo} alt={provider.name} className="max-h-10 max-w-28 rounded-lg" /> : <b className={provider.id === activeProvider.id ? "text-black" : "text-white"}>{provider.name}</b>}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-8 mb-[19px]"><span className="text-[10px] font-extrabold tracking-[.13em] text-[#47c98d] uppercase">STREAMING PICKS</span><h2 className="mt-1 font-display text-[22px] font-bold">Popular on {activeProvider.name}</h2></div>
+                <div className="media-rail flex snap-x snap-proximity gap-4 overflow-x-auto pb-3 max-[760px]:mr-[-20px] max-[760px]:pr-5">
+                  {activeProvider.items.map((media) => <MediaCard key={media.key} media={media} saved={savedKeys.has(media.key)} canSave={Boolean(user && activeProfile)} onSave={() => toggleSaved(media)} />)}
+                </div>
+              </section>
+            )}
             <AdSenseUnit
               slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_CATALOG}
               enabled={adsEnabled}
@@ -1323,6 +1347,7 @@ export function StreamingHome({ data }: { data: HomeData }) {
     <CatalogHome
       hero={data.hero}
       rails={data.rails}
+      watchProviders={data.watchProviders}
       localeCode={data.localeCode}
     />
   );

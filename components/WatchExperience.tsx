@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isKidsMedia, watchHref, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
+import { isKidsMedia, watchHref, type EpisodeSummary, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
 import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/playback";
 import { usePlaybackBridge } from "@/lib/playback-bridge";
 import { useAuth } from "./AuthProvider";
 import { resolveAnimeEpisode } from "@/lib/anime-mappings";
 
-type WatchMenu = "servers" | "episodes" | "subtitles";
+type WatchMenu = "servers" | "subtitles";
 
 type WatchTransitionOrigin = {
   left: number;
@@ -43,6 +43,9 @@ export function WatchExperience({
   const [mirror, setMirror] = useState<PlaybackSource>(DEFAULT_MIRROR);
   const [season, setSeason] = useState(initialSeason);
   const [episode, setEpisode] = useState(Number.isInteger(requestedEpisode) && requestedEpisode > 0 ? requestedEpisode : 1);
+  const [resumePosition, setResumePosition] = useState(Number.isFinite(resumeAt) && resumeAt > 0 ? resumeAt : 0);
+  const [episodes, setEpisodes] = useState<EpisodeSummary[]>([]);
+  const [episodesLoading, setEpisodesLoading] = useState(false);
   const [openMenu, setOpenMenu] = useState<WatchMenu | null>(null);
   const [sourceNotice, setSourceNotice] = useState("");
   const [transitionOrigin, setTransitionOrigin] = useState<WatchTransitionOrigin | null>(null);
@@ -94,9 +97,9 @@ export function WatchExperience({
         provider: mirror.provider,
         anilistId: animeEpisode?.anilistId,
         autoplay: true,
-        startAt: Number.isFinite(resumeAt) && resumeAt > 0 ? resumeAt : undefined,
+        startAt: resumePosition > 0 ? resumePosition : undefined,
       }),
-    [detail.kind, animeEpisode?.anilistId, animeEpisode?.episode, embedId, episode, isSeries, mirror.host, mirror.provider, resumeAt, season],
+    [detail.kind, animeEpisode?.anilistId, animeEpisode?.episode, embedId, episode, isSeries, mirror.host, mirror.provider, resumePosition, season],
   );
   // These providers use native player controls; no undocumented remote commands.
   const [playback, remote] = usePlaybackBridge(frameRef, sourceUrl, false);
@@ -104,6 +107,18 @@ export function WatchExperience({
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
   const progressBucket = Math.floor(playback.position / 10);
+
+  useEffect(() => {
+    if (!isSeries) return;
+    let cancelled = false;
+    setEpisodesLoading(true);
+    fetch(`/api/title/tv/${detail.tmdbId}/season/${season}`)
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((payload) => { if (!cancelled) setEpisodes(payload.episodes ?? []); })
+      .catch(() => { if (!cancelled) setEpisodes([]); })
+      .finally(() => { if (!cancelled) setEpisodesLoading(false); });
+    return () => { cancelled = true; };
+  }, [detail.tmdbId, isSeries, season]);
 
   const clearLoadTimeout = useCallback(() => {
     if (loadTimeoutRef.current == null) return;
@@ -176,10 +191,10 @@ export function WatchExperience({
   };
 
   useEffect(() => {
-    if (resumeSent.current || !playback.connected || !Number.isFinite(resumeAt) || resumeAt < 5) return;
+    if (resumeSent.current || !playback.connected || resumePosition < 5) return;
     resumeSent.current = true;
-    remote.seekTo(resumeAt);
-  }, [playback.connected, remote, resumeAt]);
+    remote.seekTo(resumePosition);
+  }, [playback.connected, remote, resumePosition]);
 
   useEffect(() => {
     if (progressBucket < 1) return;
@@ -212,9 +227,17 @@ export function WatchExperience({
         ).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
       : "";
 
-  const chooseSeason = (nextSeason: number) => {
+  const selectEpisode = (nextSeason: number, nextEpisode: number) => {
     setSeason(nextSeason);
-    setEpisode(1);
+    setEpisode(nextEpisode);
+    setResumePosition(0);
+    resumeSent.current = false;
+    const url = new URL(window.location.href);
+    url.searchParams.set("season", String(nextSeason));
+    url.searchParams.set("episode", String(nextEpisode));
+    url.searchParams.delete("t");
+    window.history.replaceState(window.history.state, "", url);
+    void saveWatchProgress(stripDetail(detail), 0, 0, nextSeason, nextEpisode);
   };
 
   const toggleMenu = (menu: WatchMenu) => {
@@ -363,16 +386,6 @@ export function WatchExperience({
             </div>
 
             <div className="flex shrink-0 flex-wrap justify-end gap-2 max-[640px]:justify-start">
-              {isSeries && seasons.length > 0 && (
-                <button
-                  type="button"
-                  className={`${TOOL_BUTTON} ${openMenu === "episodes" ? "border-white/30 bg-white/12 text-white" : ""}`}
-                  onClick={() => toggleMenu("episodes")}
-                  aria-expanded={openMenu === "episodes"}
-                >
-                  Episodes <span className="text-[#8f8a83]">S{season} E{episode}</span>
-                </button>
-              )}
               <button
                 type="button"
                 className={`${TOOL_BUTTON} ${openMenu === "subtitles" ? "border-white/30 bg-white/12 text-white" : ""}`}
@@ -394,38 +407,6 @@ export function WatchExperience({
 
           {openMenu && (
             <div className="ui-menu-enter mt-3 ml-auto max-h-[min(52vh,430px)] w-[min(460px,100%)] origin-top-right overflow-auto rounded-xl border border-white/12 bg-[#111] p-3 shadow-[0_22px_60px_rgba(0,0,0,.55)]">
-              {openMenu === "episodes" && isSeries && (
-                <div>
-                  <label className="mb-3 flex items-center gap-3">
-                    <span className="text-[10px] font-bold tracking-[.12em] text-[#817c75] uppercase">Season</span>
-                    <select
-                      className="min-w-0 flex-1 cursor-pointer rounded-lg border border-white/10 bg-[#242321] px-3 py-2 text-xs font-semibold text-white outline-none"
-                      value={season}
-                      onChange={(event) => chooseSeason(Number(event.target.value))}
-                    >
-                      {seasons.map((entry) => (
-                        <option key={entry.number} value={entry.number}>{entry.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="grid grid-cols-8 gap-1.5 max-[640px]:grid-cols-6">
-                    {Array.from({ length: activeSeason?.episodeCount ?? 0 }, (_, index) => index + 1).map((number) => (
-                      <button
-                        key={number}
-                        type="button"
-                        className={`cursor-pointer rounded-lg border py-2 text-[11px] font-bold transition ${episode === number ? "border-[#f2f0ec] bg-[#f2f0ec] text-[#111]" : "border-white/8 bg-[#20201f] text-[#aaa59e] hover:bg-[#2b2a29] hover:text-white"}`}
-                        onClick={() => {
-                          setEpisode(number);
-                          setOpenMenu(null);
-                        }}
-                      >
-                        {number}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {openMenu === "subtitles" && (
                 <p className="p-2 text-sm text-[#aaa59e]">
                   Use {mirror.name}&apos;s settings inside the video to choose available subtitles.
@@ -530,6 +511,45 @@ export function WatchExperience({
           )}
         </aside>
       </section>
+
+      {isSeries && seasons.length > 0 && (
+        <section className="mt-12 px-[max(26px,calc((100vw_-_1720px)/2))] max-[760px]:px-[18px]">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="font-display text-[clamp(26px,3vw,42px)] font-extrabold">Episodes</h2>
+              <p className="mt-1 text-sm text-[#817c75]">{activeSeason?.name ?? `Season ${season}`} · {activeSeason?.episodeCount ?? episodes.length} episodes</p>
+            </div>
+            <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
+              {seasons.map((entry) => (
+                <button key={entry.number} type="button" onClick={() => selectEpisode(entry.number, 1)} className={`shrink-0 rounded-full px-5 py-3 text-sm font-bold transition ${entry.number === season ? "bg-white text-black" : "bg-[#141414] text-[#aaa6a0] hover:bg-[#222] hover:text-white"}`}>{entry.name}</button>
+              ))}
+            </div>
+          </div>
+          {episodesLoading ? <div className="mt-7 h-36 animate-pulse rounded-2xl bg-white/5" /> : (
+            <div className="mt-7 grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
+              {episodes.map((item) => (
+                <button key={item.id} type="button" onClick={() => selectEpisode(item.seasonNumber, item.episodeNumber)} className={`group overflow-hidden rounded-2xl border text-left transition ${episode === item.episodeNumber ? "border-[#f5ad12] bg-[#1b1811]" : "border-white/8 bg-[#151515] hover:border-white/20"}`}>
+                  <span className="relative block aspect-[1.9] overflow-hidden bg-[#202020]">
+                    {item.still && <img src={item.still} alt="" loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" />}
+                    <b className="absolute top-3 left-3 rounded-full bg-black/75 px-3 py-1.5 text-xs">S{item.seasonNumber} E{item.episodeNumber}</b>
+                    {episode === item.episodeNumber && <span className="absolute inset-0 grid place-items-center bg-black/25 text-4xl" aria-hidden="true">▶</span>}
+                  </span>
+                  <span className="block p-4"><b className="text-base">{item.name}</b><small className="mt-1 block text-[#817c75]">{item.airDate ?? "Air date unavailable"}{item.runtime ? ` · ${item.runtime}m` : ""}</small>{item.overview && <span className="mt-3 block line-clamp-3 text-sm leading-relaxed text-[#aaa6a0]">{item.overview}</span>}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {detail.cast.length > 0 && (
+        <section className="mt-14 px-[max(26px,calc((100vw_-_1720px)/2))] max-[760px]:px-[18px]">
+          <h2 className="font-display text-[clamp(24px,2.5vw,36px)] font-extrabold">Cast</h2>
+          <div className="mt-6 grid grid-cols-6 gap-5 max-[1080px]:grid-cols-4 max-[640px]:grid-cols-3">
+            {detail.cast.map((person) => <div key={person.id} className="min-w-0 text-center">{person.profile ? <img src={person.profile} alt="" loading="lazy" className="mx-auto aspect-square w-full max-w-40 rounded-full border border-white/10 object-cover" /> : <div className="mx-auto grid aspect-square w-full max-w-40 place-items-center rounded-full bg-[#1c1c1c] text-3xl text-[#777]">{person.name.slice(0, 1)}</div>}<b className="mt-3 block truncate text-sm">{person.name}</b><small className="mt-1 block truncate text-[#817c75]">{person.character}</small></div>)}
+          </div>
+        </section>
+      )}
 
       {(activeProfile?.isKids ? detail.recommendations.filter(isKidsMedia) : detail.recommendations).length > 0 && (
         <section className="mt-[62px] px-[max(26px,calc((100vw_-_1720px)/2))] max-[760px]:px-[18px]">

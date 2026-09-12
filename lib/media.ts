@@ -32,6 +32,31 @@ export type SeasonSummary = {
   episodeCount: number;
 };
 
+export type EpisodeSummary = {
+  id: number;
+  seasonNumber: number;
+  episodeNumber: number;
+  name: string;
+  overview: string;
+  airDate: string | null;
+  still: string | null;
+  runtime: number | null;
+};
+
+export type CastMember = {
+  id: number;
+  name: string;
+  character: string;
+  profile: string | null;
+};
+
+export type WatchProviderShelf = {
+  id: number;
+  name: string;
+  logo: string | null;
+  items: Media[];
+};
+
 export type MediaDetail = Media & {
   animeMappings?: import("./anime-mappings").AnimeMapping[];
   imdbId: string | null;
@@ -39,6 +64,7 @@ export type MediaDetail = Media & {
   runtime: string;
   tagline: string;
   seasons: SeasonSummary[];
+  cast: CastMember[];
   recommendations: Media[];
 };
 
@@ -53,7 +79,7 @@ export type StreamingOffer = {
 };
 
 export type HomeData =
-  | { configured: true; hero: MediaDetail; rails: MediaRail[]; localeCode: string }
+  | { configured: true; hero: MediaDetail; rails: MediaRail[]; watchProviders: WatchProviderShelf[]; localeCode: string }
   | { configured: false; reason: string };
 
 /**

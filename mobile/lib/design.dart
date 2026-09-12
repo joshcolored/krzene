@@ -28,8 +28,9 @@ class KrzeneIcon extends StatelessWidget {
   String get _content => switch (glyph) {
     KrzeneGlyph.home =>
       '''
-          <path d='M3.5 10.5 12 3.8l8.5 6.7'/>
-          <path d='M5.7 9.2v10.5h12.6V9.2M9.3 19.7v-6h5.4v6'/>
+          <path d='M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z'/>
+          <path d='M7 21h10'/>
+          <rect width='20' height='14' x='2' y='3' rx='2'/>
         ''',
     KrzeneGlyph.search =>
       '''
@@ -38,14 +39,18 @@ class KrzeneIcon extends StatelessWidget {
         ''',
     KrzeneGlyph.library =>
       '''
-          <rect x='4' y='4' width='5' height='16' rx='1'/>
-          <rect x='10.2' y='4' width='4.8' height='16' rx='1'/>
-          <path d='m16.3 5.1 3.2-.8 2.8 14.3-3.2.7-2.8-14.2Z'/>
+          <rect width='8' height='18' x='3' y='3' rx='1'/>
+          <path d='M7 3v18'/>
+          <path d='M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z'/>
         ''',
     KrzeneGlyph.profile =>
       '''
-          <circle cx='12' cy='8' r='3.5'/>
-          <path d='M5.2 20c.5-4 2.8-6 6.8-6s6.3 2 6.8 6'/>
+          <path d='m14.305 19.53.923-.382'/><path d='m15.228 16.852-.923-.383'/>
+          <path d='m16.852 15.228-.383-.923'/><path d='m16.852 20.772-.383.924'/>
+          <path d='m19.148 15.228.383-.923'/><path d='m19.53 21.696-.382-.924'/>
+          <path d='M2 21a8 8 0 0 1 10.434-7.62'/>
+          <path d='m20.772 16.852.924-.383'/><path d='m20.772 19.148.924.383'/>
+          <circle cx='10' cy='8' r='5'/><circle cx='18' cy='18' r='3'/>
         ''',
     KrzeneGlyph.language =>
       '''
