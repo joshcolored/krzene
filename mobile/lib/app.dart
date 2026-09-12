@@ -14,6 +14,7 @@ import 'player.dart';
 import 'ios_navigation.dart';
 import 'ios_genre_menu.dart';
 import 'ios_search_bar.dart';
+import 'hero_preview.dart';
 
 const _languages = {
   'en-US': 'English · United States',
@@ -792,7 +793,9 @@ class _HomeShellState extends State<HomeShell> {
               child: AppBar(
                 toolbarHeight: 68,
                 titleSpacing: 18,
-                backgroundColor: Colors.black,
+                backgroundColor: index == 0 ? Colors.transparent : Colors.black,
+                elevation: 0,
+                scrolledUnderElevation: 0,
                 surfaceTintColor: Colors.transparent,
                 systemOverlayStyle: SystemUiOverlayStyle.light,
                 title: const KrzeneLogo(markSize: 38),
@@ -1327,7 +1330,7 @@ class BrowsePage extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: controller.loadCatalog,
       child: ListView(
-        padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
+        padding: EdgeInsets.zero,
         children: [
           SizedBox(
             key: featureKey,
@@ -1419,12 +1422,14 @@ class _HeroBannerState extends State<_HeroBanner> {
   Widget build(BuildContext context) {
     final media = widget.items[index];
     return SizedBox(
-      height: 450,
+      height: 450 + MediaQuery.paddingOf(context).top,
       child: Stack(
         fit: StackFit.expand,
         children: [
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 420),
+            layoutBuilder: (current, previous) =>
+                Stack(fit: StackFit.expand, children: [...previous, ?current]),
             child: media.art == null
                 ? const ColoredBox(key: ValueKey('empty'), color: Colors.black)
                 : Image.network(
@@ -1433,6 +1438,7 @@ class _HeroBannerState extends State<_HeroBanner> {
                     fit: BoxFit.cover,
                   ),
           ),
+          HeroPreview(key: ValueKey('preview-${media.key}'), media: media),
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -1974,6 +1980,8 @@ class _SearchPageState extends State<SearchPage> {
                     ? IosSearchBar(onChanged: search)
                     : TextField(
                         autofocus: false,
+                        onTapOutside: (_) =>
+                            FocusManager.instance.primaryFocus?.unfocus(),
                         onChanged: search,
                         decoration: InputDecoration(
                           hintText: 'Search every movie and show',

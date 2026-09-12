@@ -661,7 +661,7 @@ void main() {
   });
 
   testWidgets(
-    'black browse header hides only past the feature and returns on upward scroll',
+    'transparent browse header hides past feature; other screens keep black header',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(430, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -692,8 +692,9 @@ void main() {
           .offset;
       expect(
         tester.widget<AppBar>(find.byType(AppBar)).backgroundColor,
-        Colors.black,
+        Colors.transparent,
       );
+      expect(tester.widget<ListView>(list).padding, EdgeInsets.zero);
       expect(headerOffset(), Offset.zero);
       scroll.position.jumpTo(200);
       await tester.pumpAndSettle();
@@ -729,6 +730,10 @@ void main() {
       await tester.tap(find.text('Search').last);
       await tester.pumpAndSettle();
       expect(headerOffset(), Offset.zero);
+      expect(
+        tester.widget<AppBar>(find.byType(AppBar)).backgroundColor,
+        Colors.black,
+      );
       expect(tester.takeException(), isNull);
     },
   );

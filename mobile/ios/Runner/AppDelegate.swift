@@ -35,9 +35,10 @@ private final class KrzeneSearchBarFactory: NSObject, FlutterPlatformViewFactory
   }
 }
 
-private final class KrzeneSearchBarView: NSObject, FlutterPlatformView, UISearchBarDelegate {
+private final class KrzeneSearchBarView: NSObject, FlutterPlatformView, UISearchBarDelegate, UIGestureRecognizerDelegate {
   private let searchBar = UISearchBar()
   private let channel: FlutterMethodChannel
+  private var outsideTap: UITapGestureRecognizer?
 
   init(frame: CGRect, id: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "krzene/search-bar/\(id)", binaryMessenger: messenger)
@@ -68,7 +69,34 @@ private final class KrzeneSearchBarView: NSObject, FlutterPlatformView, UISearch
     searchBar.resignFirstResponder()
   }
 
-  deinit { channel.setMethodCallHandler(nil) }
+  func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
+    guard outsideTap == nil, let window = searchBar.window else { return }
+    let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+    tap.cancelsTouchesInView = false
+    tap.delegate = self
+    window.addGestureRecognizer(tap)
+    outsideTap = tap
+  }
+
+  func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+    if let tap = outsideTap { tap.view?.removeGestureRecognizer(tap) }
+    outsideTap = nil
+  }
+
+  @objc private func dismissKeyboard() { searchBar.resignFirstResponder() }
+
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    guard let view = touch.view else { return false }
+    return !view.isDescendant(of: searchBar)
+  }
+
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+  deinit {
+    if let tap = outsideTap { tap.view?.removeGestureRecognizer(tap) }
+    channel.setMethodCallHandler(nil)
+  }
 }
 
 private final class KrzeneGenreMenuFactory: NSObject, FlutterPlatformViewFactory {
