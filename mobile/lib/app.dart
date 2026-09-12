@@ -12,6 +12,8 @@ import 'design.dart';
 import 'models.dart';
 import 'player.dart';
 import 'ios_navigation.dart';
+import 'ios_genre_menu.dart';
+import 'ios_search_bar.dart';
 
 const _languages = {
   'en-US': 'English · United States',
@@ -24,6 +26,39 @@ const _languages = {
   'hi-IN': 'Hindi · India',
   'zh-CN': 'Chinese · China',
 };
+
+const _providerFallbacks = <WatchProviderShelf>[
+  WatchProviderShelf(
+    8,
+    'Netflix',
+    'https://image.tmdb.org/t/p/w154/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg',
+    [],
+  ),
+  WatchProviderShelf(
+    337,
+    'Disney+',
+    'https://image.tmdb.org/t/p/w154/97yvRBw1GzX7fXprcF80er19ot.jpg',
+    [],
+  ),
+  WatchProviderShelf(
+    1899,
+    'Max',
+    'https://image.tmdb.org/t/p/w154/jbe4gVSfRlbPTdESXhEKpornsfu.jpg',
+    [],
+  ),
+  WatchProviderShelf(
+    9,
+    'Prime Video',
+    'https://image.tmdb.org/t/p/w154/pvske1MyAoymrs5bguRfVqYiM9a.jpg',
+    [],
+  ),
+  WatchProviderShelf(
+    350,
+    'Apple TV+',
+    'https://image.tmdb.org/t/p/w154/2E03IAZsX4ZaUqM7tXlctEPMGWS.jpg',
+    [],
+  ),
+];
 
 class KrzeneApp extends StatefulWidget {
   const KrzeneApp({super.key});
@@ -766,17 +801,27 @@ class _HomeShellState extends State<HomeShell> {
                     Padding(
                       padding: const EdgeInsets.only(right: 18),
                       child: Center(
-                        child: _GenreFilterButton(
-                          buttonKey: const Key('browse-genre-filter'),
-                          compact: true,
-                          genres: browseGenres,
-                          selectedGenre: activeBrowseGenre,
-                          onSelected: (value) => setState(() {
-                            browseGenre = value;
-                            headerVisible = true;
-                            headerScrollTravel = 0;
-                          }),
-                        ),
+                        child: Platform.isIOS
+                            ? IosGenreMenu(
+                                genres: browseGenres,
+                                selectedGenre: activeBrowseGenre,
+                                onSelected: (value) => setState(() {
+                                  browseGenre = value;
+                                  headerVisible = true;
+                                  headerScrollTravel = 0;
+                                }),
+                              )
+                            : _GenreFilterButton(
+                                buttonKey: const Key('browse-genre-filter'),
+                                compact: true,
+                                genres: browseGenres,
+                                selectedGenre: activeBrowseGenre,
+                                onSelected: (value) => setState(() {
+                                  browseGenre = value;
+                                  headerVisible = true;
+                                  headerScrollTravel = 0;
+                                }),
+                              ),
                       ),
                     ),
                 ],
@@ -1204,14 +1249,25 @@ class BrowsePage extends StatelessWidget {
                   rail.id,
                   rail.kicker,
                   rail.heading,
-                  rail.items.where((item) => item.isKidsSafe).toList(),
+                  rail.items
+                      .where(
+                        (item) =>
+                            item.isKidsSafe &&
+                            controller.isCineSrcAvailable(item),
+                      )
+                      .toList(),
                 )
-              : rail,
+              : MediaRail(
+                  rail.id,
+                  rail.kicker,
+                  rail.heading,
+                  rail.items.where(controller.isCineSrcAvailable).toList(),
+                ),
         )
         .where((rail) => rail.items.isNotEmpty)
         .toList();
     final availableMedia = <Media>[
-      if (!kids) catalog.hero,
+      if (!kids && controller.isCineSrcAvailable(catalog.hero)) catalog.hero,
       ...availableRails.expand((rail) => rail.items),
     ];
     final genres = _genresFor(availableMedia);
@@ -1234,7 +1290,19 @@ class BrowsePage extends StatelessWidget {
         : availableMedia
               .where((item) => _matchesGenre(item, activeGenre))
               .firstOrNull;
-    final providers = catalog.watchProviders
+    final featureItems = <Media>[];
+    final featureKeys = <String>{};
+    for (final item in [?hero, ...availableMedia]) {
+      if (_matchesGenre(item, activeGenre) && featureKeys.add(item.key)) {
+        featureItems.add(item);
+      }
+      if (featureItems.length == 6) break;
+    }
+    final usesProviderFallback = catalog.watchProviders.isEmpty;
+    final providerSource = usesProviderFallback
+        ? _providerFallbacks
+        : catalog.watchProviders;
+    final providers = providerSource
         .map(
           (provider) => WatchProviderShelf(
             provider.id,
@@ -1249,7 +1317,7 @@ class BrowsePage extends StatelessWidget {
                 .toList(),
           ),
         )
-        .where((provider) => provider.items.isNotEmpty)
+        .where((provider) => usesProviderFallback || provider.items.isNotEmpty)
         .toList();
     final activeProvider = providers.firstWhere(
       (provider) => provider.id == selectedProviderId,
@@ -1263,8 +1331,8 @@ class BrowsePage extends StatelessWidget {
         children: [
           SizedBox(
             key: featureKey,
-            child: hero != null
-                ? _HeroBanner(media: hero, controller: controller)
+            child: featureItems.isNotEmpty
+                ? _HeroBanner(items: featureItems, controller: controller)
                 : const _KidsCatalogEmpty(),
           ),
           if (controller.signedIn &&
@@ -1317,96 +1385,222 @@ class _KidsCatalogEmpty extends StatelessWidget {
   );
 }
 
-class _HeroBanner extends StatelessWidget {
-  const _HeroBanner({required this.media, required this.controller});
-  final Media media;
+class _HeroBanner extends StatefulWidget {
+  const _HeroBanner({required this.items, required this.controller});
+  final List<Media> items;
   final KrzeneController controller;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 530,
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        if (media.art != null) Image.network(media.art!, fit: BoxFit.cover),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black12, Color(0x33000000), Color(0xff070707)],
-              stops: [0, .48, 1],
+  State<_HeroBanner> createState() => _HeroBannerState();
+}
+
+class _HeroBannerState extends State<_HeroBanner> {
+  int index = 0;
+
+  @override
+  void didUpdateWidget(_HeroBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (index >= widget.items.length ||
+        !widget.items.any(
+          (item) =>
+              item.key ==
+              oldWidget.items[index.clamp(0, oldWidget.items.length - 1)].key,
+        )) {
+      index = 0;
+    }
+  }
+
+  void move(int direction) => setState(() {
+    index = (index + direction) % widget.items.length;
+    if (index < 0) index += widget.items.length;
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final media = widget.items[index];
+    return SizedBox(
+      height: 450,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 420),
+            child: media.art == null
+                ? const ColoredBox(key: ValueKey('empty'), color: Colors.black)
+                : Image.network(
+                    media.art!,
+                    key: ValueKey(media.key),
+                    fit: BoxFit.cover,
+                  ),
+          ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerRight,
+                end: Alignment.centerLeft,
+                colors: [Color(0x22000000), Color(0xbf070707)],
+              ),
             ),
           ),
-        ),
-        Positioned(
-          left: 20,
-          right: 20,
-          bottom: 34,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'FEATURE FILM · TRENDING NOW',
-                style: TextStyle(
-                  color: Color(0xff47c98d),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1,
-                ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x18000000),
+                  Color(0x05000000),
+                  Color(0xe8070707),
+                ],
+                stops: [0, .55, 1],
               ),
-              const SizedBox(height: 12),
-              Text(
-                media.title,
-                style: const TextStyle(
-                  fontSize: 43,
-                  height: .95,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                [
-                  if (media.score > 0) '★ ${media.score.toStringAsFixed(1)}',
-                  if (media.year != null) '${media.year}',
-                  ...media.genres.take(2),
-                ].join('  ·  '),
-                style: const TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                media.overview,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white70, height: 1.45),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _watch(context, media, controller),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Watch now'),
-                    ),
-                  ),
-                  if (controller.activeProfile != null) ...[
-                    const SizedBox(width: 10),
-                    IconButton.filledTonal(
-                      onPressed: () => controller.toggleLibrary(media),
-                      icon: Icon(
-                        controller.libraryKeys.contains(media.key)
-                            ? Icons.check
-                            : Icons.add,
+            ),
+          ),
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 22,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'FEATURE FILM',
+                        style: TextStyle(color: krzeneGreen),
                       ),
+                      TextSpan(
+                        text: '  ·  TRENDING NOW',
+                        style: TextStyle(color: Colors.white60),
+                      ),
+                    ],
+                  ),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .7,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  media.title,
+                  style: const TextStyle(
+                    fontSize: 38,
+                    height: .95,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (media.score > 0)
+                      Text(
+                        '★ ${media.score.toStringAsFixed(1)}',
+                        style: const TextStyle(
+                          color: krzeneGreen,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    if (media.year != null) _HeroMeta('${media.year}'),
+                    for (final genre in media.genres.take(2)) _HeroMeta(genre),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  media.overview,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    height: 1.4,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => _watch(context, media, widget.controller),
+                    icon: const Icon(Icons.play_arrow_outlined, size: 18),
+                    label: const Text('Watch now'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _CarouselArrow(
+                      icon: Icons.chevron_left,
+                      onTap: () => move(-1),
+                    ),
+                    const SizedBox(width: 10),
+                    for (var dot = 0; dot < widget.items.length; dot++)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: dot == index ? 25 : 5,
+                        height: 5,
+                        margin: const EdgeInsets.only(right: 5),
+                        decoration: BoxDecoration(
+                          color: dot == index ? Colors.white : Colors.white38,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    const SizedBox(width: 5),
+                    _CarouselArrow(
+                      icon: Icons.chevron_right,
+                      onTap: () => move(1),
                     ),
                   ],
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroMeta extends StatelessWidget {
+  const _HeroMeta(this.label);
+  final String label;
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      border: Border.all(color: Colors.white30),
+      borderRadius: BorderRadius.circular(5),
+      color: Colors.black26,
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 10, color: Colors.white70),
+      ),
+    ),
+  );
+}
+
+class _CarouselArrow extends StatelessWidget {
+  const _CarouselArrow({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        border: Border.all(color: Colors.white24),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, size: 18),
     ),
   );
 }
@@ -1542,15 +1736,24 @@ class _WatchProviderSection extends StatelessWidget {
             },
           ),
         ),
-        _RailView(
-          rail: MediaRail(
-            'provider-${selected.id}',
-            'STREAMING PICKS',
-            'Popular on ${selected.name}',
-            selected.items,
+        if (selected.items.isNotEmpty)
+          _RailView(
+            rail: MediaRail(
+              'provider-${selected.id}',
+              'STREAMING PICKS',
+              'Popular on ${selected.name}',
+              selected.items,
+            ),
+            controller: controller,
+          )
+        else
+          const Padding(
+            padding: EdgeInsets.fromLTRB(18, 18, 18, 0),
+            child: Text(
+              'Provider titles will appear after the catalog service finishes updating.',
+              style: TextStyle(color: Colors.white54, height: 1.45),
+            ),
           ),
-          controller: controller,
-        ),
       ],
     ),
   );
@@ -1673,6 +1876,7 @@ class _SearchPageState extends State<SearchPage> {
           .expand((rail) => rail.items),
     ]) {
       if (kids && !item.isKidsSafe) continue;
+      if (!widget.controller.isCineSrcAvailable(item)) continue;
       if (item.key.isNotEmpty && seen.add(item.key)) items.add(item);
       if (items.length == 18) break;
     }
@@ -1709,7 +1913,11 @@ class _SearchPageState extends State<SearchPage> {
           kidsOnly: widget.controller.kidsMode,
         );
         if (mounted && currentRequest == requestId) {
-          setState(() => results = nextResults);
+          setState(
+            () => results = nextResults
+                .where(widget.controller.isCineSrcAvailable)
+                .toList(),
+          );
         }
       } catch (exception) {
         if (mounted && currentRequest == requestId) {
@@ -1735,9 +1943,12 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final unfilteredItems = query.isEmpty ? recommendations : results;
+    final availableItems = unfilteredItems
+        .where(widget.controller.isCineSrcAvailable)
+        .toList();
     final profileSafeItems = widget.controller.kidsMode
-        ? unfilteredItems.where((item) => item.isKidsSafe).toList()
-        : unfilteredItems;
+        ? availableItems.where((item) => item.isKidsSafe).toList()
+        : availableItems;
     final genreSource = <Media>[
       ...recommendations,
       ...results,
@@ -1759,20 +1970,22 @@ class _SearchPageState extends State<SearchPage> {
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  autofocus: false,
-                  onChanged: search,
-                  decoration: InputDecoration(
-                    hintText: 'Search every movie and show',
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: const Color(0xff171717),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
+                child: Platform.isIOS
+                    ? IosSearchBar(onChanged: search)
+                    : TextField(
+                        autofocus: false,
+                        onChanged: search,
+                        decoration: InputDecoration(
+                          hintText: 'Search every movie and show',
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: const Color(0xff171717),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(width: 10),
               _GenreFilterButton(

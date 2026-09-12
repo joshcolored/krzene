@@ -15,8 +15,126 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "KrzeneNavigation") {
       registrar.register(KrzeneNavigationFactory(messenger: registrar.messenger()),
                          withId: "krzene/native-navigation")
+      registrar.register(KrzeneGenreMenuFactory(messenger: registrar.messenger()),
+                         withId: "krzene/genre-menu")
+      registrar.register(KrzeneSearchBarFactory(messenger: registrar.messenger()),
+                         withId: "krzene/search-bar")
     }
   }
+}
+
+private final class KrzeneSearchBarFactory: NSObject, FlutterPlatformViewFactory {
+  let messenger: FlutterBinaryMessenger
+  init(messenger: FlutterBinaryMessenger) { self.messenger = messenger }
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64,
+              arguments args: Any?) -> FlutterPlatformView {
+    KrzeneSearchBarView(frame: frame, id: viewId, args: args, messenger: messenger)
+  }
+}
+
+private final class KrzeneSearchBarView: NSObject, FlutterPlatformView, UISearchBarDelegate {
+  private let searchBar = UISearchBar()
+  private let channel: FlutterMethodChannel
+
+  init(frame: CGRect, id: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "krzene/search-bar/\(id)", binaryMessenger: messenger)
+    super.init()
+    searchBar.frame = frame
+    searchBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    searchBar.delegate = self
+    searchBar.searchBarStyle = .minimal
+    searchBar.placeholder = (args as? [String: Any])?["placeholder"] as? String
+    searchBar.autocapitalizationType = .none
+    searchBar.autocorrectionType = .no
+    searchBar.keyboardAppearance = .dark
+    searchBar.returnKeyType = .search
+    searchBar.searchTextField.backgroundColor = UIColor(white: 0.10, alpha: 1)
+    searchBar.searchTextField.textColor = .white
+    searchBar.searchTextField.layer.cornerRadius = 16
+    searchBar.searchTextField.clipsToBounds = true
+    searchBar.accessibilityLabel = "Search every movie and show"
+  }
+
+  func view() -> UIView { searchBar }
+
+  func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+    channel.invokeMethod("changed", arguments: searchText)
+  }
+
+  func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+    searchBar.resignFirstResponder()
+  }
+
+  deinit { channel.setMethodCallHandler(nil) }
+}
+
+private final class KrzeneGenreMenuFactory: NSObject, FlutterPlatformViewFactory {
+  let messenger: FlutterBinaryMessenger
+  init(messenger: FlutterBinaryMessenger) { self.messenger = messenger }
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64,
+              arguments args: Any?) -> FlutterPlatformView {
+    KrzeneGenreMenuView(frame: frame, id: viewId, args: args, messenger: messenger)
+  }
+}
+
+private final class KrzeneGenreMenuView: NSObject, FlutterPlatformView {
+  private let button = UIButton(type: .system)
+  private let channel: FlutterMethodChannel
+  private var genres: [String] = []
+  private var selected = ""
+
+  init(frame: CGRect, id: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "krzene/genre-menu/\(id)", binaryMessenger: messenger)
+    super.init()
+    button.frame = frame
+    button.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    var configuration = UIButton.Configuration.gray()
+    configuration.image = UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .bold))
+    configuration.baseForegroundColor = .white
+    configuration.cornerStyle = .capsule
+    button.configuration = configuration
+    button.showsMenuAsPrimaryAction = true
+    button.accessibilityLabel = "Choose genre"
+    update(args as? [String: Any] ?? [:])
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "update", let values = call.arguments as? [String: Any] else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      self?.update(values)
+      result(nil)
+    }
+  }
+
+  func view() -> UIView { button }
+
+  private func update(_ values: [String: Any]) {
+    genres = values["genres"] as? [String] ?? []
+    selected = values["selected"] as? String ?? ""
+    var actions = [UIAction(title: "All genres", image: UIImage(systemName: "rectangle.grid.2x2"), state: selected.isEmpty ? .on : .off) { [weak self] _ in
+      self?.choose("")
+    }]
+    actions.append(contentsOf: genres.map { genre in
+      UIAction(title: genre, state: genre == selected ? .on : .off) { [weak self] _ in
+        self?.choose(genre)
+      }
+    })
+    button.menu = UIMenu(title: "Genres", options: .displayInline, children: actions)
+  }
+
+  private func choose(_ genre: String) {
+    selected = genre
+    update(["genres": genres, "selected": genre])
+    channel.invokeMethod("select", arguments: genre)
+  }
+
+  deinit { channel.setMethodCallHandler(nil) }
 }
 
 private final class KrzeneNavigationFactory: NSObject, FlutterPlatformViewFactory {

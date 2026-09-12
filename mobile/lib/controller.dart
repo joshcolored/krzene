@@ -10,6 +10,7 @@ import 'models.dart';
 import 'services.dart';
 
 class KrzeneController extends ChangeNotifier {
+  static const _cineSrcUnavailableKey = 'cinesrc_unavailable_media_v1';
   KrzeneController({
     this.catalogApi = const CatalogApi(),
     AccountRepository? account,
@@ -30,6 +31,7 @@ class KrzeneController extends ChangeNotifier {
   List<Media> library = [];
   List<ContinueItem> continueWatching = [];
   final Set<String> _libraryMutations = <String>{};
+  final Set<String> _cineSrcUnavailable = <String>{};
   bool _adultProfilesUnlocked = false;
   bool passwordRecoveryMode = false;
 
@@ -39,12 +41,17 @@ class KrzeneController extends ChangeNotifier {
   Set<String> get libraryKeys => library.map((item) => item.key).toSet();
   bool isLibraryUpdating(String mediaKey) =>
       _libraryMutations.contains(mediaKey);
+  bool isCineSrcAvailable(Media media) =>
+      !_cineSrcUnavailable.contains(media.key);
 
   bool requiresParentalUnlock(ViewerProfile profile) =>
       !profile.isKids && hasKidsProfile && !_adultProfilesUnlocked;
 
   Future<void> initialize() async {
     final prefs = await SharedPreferences.getInstance();
+    _cineSrcUnavailable
+      ..clear()
+      ..addAll(prefs.getStringList(_cineSrcUnavailableKey) ?? const []);
     language = prefs.getString('language') ?? 'en-US';
     final appLinks = AppLinks();
     final initialLink = await appLinks.getInitialLink();
@@ -94,6 +101,20 @@ class KrzeneController extends ChangeNotifier {
     language = value;
     (await SharedPreferences.getInstance()).setString('language', value);
     await loadCatalog();
+  }
+
+  Future<void> markCineSrcUnavailable(Media media) async {
+    if (!_cineSrcUnavailable.add(media.key)) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _cineSrcUnavailableKey,
+      _cineSrcUnavailable.toList()..sort(),
+    );
+    library = library.where((item) => item.key != media.key).toList();
+    continueWatching = continueWatching
+        .where((item) => item.media.key != media.key)
+        .toList();
+    notifyListeners();
   }
 
   Future<void> refreshAccount() async {

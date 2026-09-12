@@ -281,9 +281,13 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
+      final type = decoded['type'];
+      if (type == 'cinesrc:error') {
+        unawaited(widget.controller.markCineSrcUnavailable(widget.media));
+        return;
+      }
       final data = decoded['data'];
       if (data is! Map) return;
-      final type = decoded['type'];
       if (type != 'PLAYER_EVENT' && type != 'KRZENE_PROGRESS') return;
       final nextPosition = _seconds(
         type == 'PLAYER_EVENT' ? data['player_progress'] : data['position'],
