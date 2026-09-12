@@ -14,7 +14,6 @@ import 'player.dart';
 import 'ios_navigation.dart';
 import 'ios_genre_menu.dart';
 import 'ios_search_bar.dart';
-import 'hero_preview.dart';
 
 const _languages = {
   'en-US': 'English · United States',
@@ -866,14 +865,6 @@ class _HomeShellState extends State<HomeShell> {
                 ),
               ),
             ),
-          // Preserve a readable black status bar when the toolbar slides away.
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: MediaQuery.paddingOf(context).top,
-            child: const IgnorePointer(child: ColoredBox(color: Colors.black)),
-          ),
         ],
       ),
       bottomNavigationBar: Platform.isIOS
@@ -1329,30 +1320,35 @@ class BrowsePage extends StatelessWidget {
     );
     return RefreshIndicator(
       onRefresh: controller.loadCatalog,
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          SizedBox(
-            key: featureKey,
-            child: featureItems.isNotEmpty
-                ? _HeroBanner(items: featureItems, controller: controller)
-                : const _KidsCatalogEmpty(),
-          ),
-          if (controller.signedIn &&
-              controller.activeProfile != null &&
-              controller.continueWatching.isNotEmpty)
-            _ContinueRail(controller: controller),
-          if (activeProvider.id != 0)
-            _WatchProviderSection(
-              providers: providers,
-              selected: activeProvider,
-              controller: controller,
-              onSelected: onProviderSelected ?? (_) {},
+      child: MediaQuery.removePadding(
+        context: context,
+        removeTop: true,
+        child: ListView(
+          primary: false,
+          padding: EdgeInsets.zero,
+          children: [
+            SizedBox(
+              key: featureKey,
+              child: featureItems.isNotEmpty
+                  ? _HeroBanner(items: featureItems, controller: controller)
+                  : const _KidsCatalogEmpty(),
             ),
-          for (final rail in rails)
-            _RailView(rail: rail, controller: controller),
-          const SizedBox(height: 112),
-        ],
+            if (controller.signedIn &&
+                controller.activeProfile != null &&
+                controller.continueWatching.isNotEmpty)
+              _ContinueRail(controller: controller),
+            if (activeProvider.id != 0)
+              _WatchProviderSection(
+                providers: providers,
+                selected: activeProvider,
+                controller: controller,
+                onSelected: onProviderSelected ?? (_) {},
+              ),
+            for (final rail in rails)
+              _RailView(rail: rail, controller: controller),
+            const SizedBox(height: 112),
+          ],
+        ),
       ),
     );
   }
@@ -1422,7 +1418,9 @@ class _HeroBannerState extends State<_HeroBanner> {
   Widget build(BuildContext context) {
     final media = widget.items[index];
     return SizedBox(
-      height: 450 + MediaQuery.paddingOf(context).top,
+      // The artwork extends beneath the status bar, while the extra height
+      // keeps the title and primary action comfortably below the header.
+      height: 474 + MediaQuery.paddingOf(context).top,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -1438,7 +1436,6 @@ class _HeroBannerState extends State<_HeroBanner> {
                     fit: BoxFit.cover,
                   ),
           ),
-          HeroPreview(key: ValueKey('preview-${media.key}'), media: media),
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(

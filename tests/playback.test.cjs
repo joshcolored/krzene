@@ -18,24 +18,6 @@ function load(name) {
 }
 const { embedUrl, PLAYBACK_SOURCES } = load('playback');
 const { mappingsFromDataset, resolveAnimeEpisode } = load('anime-mappings');
-const { selectOfficialPreview } = load('preview');
-
-test('hero previews prefer official teasers with trailers as fallback', () => {
-  const trailer = { key: 'abcdefghijk', site: 'YouTube', type: 'Trailer', official: true };
-  const teaser = { ...trailer, key: '123456789_-', type: 'Teaser' };
-  assert.equal(selectOfficialPreview([trailer, teaser]), teaser.key);
-  assert.equal(selectOfficialPreview([trailer]), trailer.key);
-});
-
-test('hero previews reject unofficial footage, invalid IDs and missing trailers', () => {
-  const base = { key: 'abcdefghijk', site: 'YouTube', type: 'Trailer', official: true };
-  assert.equal(selectOfficialPreview([
-    { ...base, official: false }, { ...base, type: 'Featurette' },
-    { ...base, site: 'Vimeo' }, { ...base, key: '<script>bad</script>' },
-  ]), null);
-  assert.equal(selectOfficialPreview([]), null);
-});
-
 test('only CineSrc and Zoryva are selectable, CineSrc stays default', () => {
   assert.deepEqual(PLAYBACK_SOURCES.map(s => s.id), ['cinesrc', 'zoryva']);
   assert.equal(embedUrl('tv', 1429, 2, 3), 'https://cinesrc.st/embed/tv/1429?s=2&e=3');

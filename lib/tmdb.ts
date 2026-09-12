@@ -10,7 +10,6 @@
  */
 
 import { animeMappings } from "./anime-mappings";
-import { selectOfficialPreview, type PreviewVideo } from "./preview";
 import {
   accentFor,
   type Media,
@@ -382,12 +381,4 @@ export async function fetchDetail(
 /** Hero needs a wide backdrop and a tagline, so it gets its own detail call. */
 export async function fetchHero(kind: MediaKind, tmdbId: number): Promise<MediaDetail | null> {
   return fetchDetail(kind, tmdbId);
-}
-
-/** Only official promotional footage; never use the full playback source. */
-export async function fetchPreviewKey(kind: MediaKind, tmdbId: number): Promise<string | null> {
-  const videos = await tmdb<{ results?: PreviewVideo[] }>(
-    `/${kind}/${tmdbId}/videos`,
-  );
-  return selectOfficialPreview(videos?.results ?? []);
 }

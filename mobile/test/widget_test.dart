@@ -695,6 +695,7 @@ void main() {
         Colors.transparent,
       );
       expect(tester.widget<ListView>(list).padding, EdgeInsets.zero);
+      expect(tester.widget<ListView>(list).primary, isFalse);
       expect(headerOffset(), Offset.zero);
       scroll.position.jumpTo(200);
       await tester.pumpAndSettle();
