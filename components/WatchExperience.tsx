@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { isKidsMedia, watchHref, type EpisodeSummary, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
 import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/playback";
 import { usePlaybackBridge } from "@/lib/playback-bridge";
@@ -43,6 +44,18 @@ const DEFAULT_SUBTITLE_STYLE: BrowserSubtitle = {
   backgroundColor: "#000000",
   color: "#ffffff",
 };
+
+function FullscreenMenuPortal({
+  active,
+  container,
+  children,
+}: {
+  active: boolean;
+  container: HTMLElement | null;
+  children: ReactNode;
+}) {
+  return active && container ? createPortal(children, container) : children;
+}
 
 export function WatchExperience({
   detail,
@@ -760,12 +773,33 @@ export function WatchExperience({
           </div>
 
           {openMenu && (
-            <div className="ui-menu-enter mt-3 ml-auto max-h-[min(72vh,680px)] w-[min(560px,100%)] origin-top-right overflow-auto rounded-2xl border border-[#e21927]/45 bg-[#0d0d0f] p-4 shadow-[0_22px_60px_rgba(0,0,0,.65)]">
+            <FullscreenMenuPortal
+              active={isFullscreen}
+              container={playerShellRef.current}
+            >
+            <div
+              className={`ui-menu-enter origin-top-right overflow-auto rounded-2xl border border-[#e21927]/45 bg-[#0d0d0f] p-4 shadow-[0_22px_60px_rgba(0,0,0,.65)] ${
+                isFullscreen
+                  ? "absolute right-4 bottom-16 z-30 max-h-[calc(100%-5rem)] w-[min(560px,calc(100%-2rem))]"
+                  : "mt-3 ml-auto max-h-[min(72vh,680px)] w-[min(560px,100%)]"
+              }`}
+              onClick={(event) => event.stopPropagation()}
+            >
               {openMenu === "settings" && (
                 <div className="space-y-6">
-                  <div>
-                    <p className="text-[10px] font-black tracking-[.15em] text-[#e21927] uppercase">Krzene player</p>
-                    <h3 className="mt-1 text-xl font-black">Playback settings</h3>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black tracking-[.15em] text-[#e21927] uppercase">Krzene player</p>
+                      <h3 className="mt-1 text-xl font-black">Playback settings</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-full bg-white/8 text-lg hover:bg-white/15"
+                      onClick={() => setOpenMenu(null)}
+                      aria-label="Close playback settings"
+                    >
+                      ×
+                    </button>
                   </div>
 
                   <fieldset>
@@ -930,6 +964,7 @@ export function WatchExperience({
                 </div>
               )}
             </div>
+            </FullscreenMenuPortal>
           )}
         </div>
       </section>
