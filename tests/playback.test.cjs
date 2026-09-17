@@ -17,6 +17,7 @@ function load(name) {
   return mod.exports;
 }
 const { embedUrl, PLAYBACK_SOURCES } = load('playback');
+const { parseSubtitle, subtitleTextAt } = load('browser-subtitles');
 const { mappingsFromDataset, resolveAnimeEpisode } = load('anime-mappings');
 test('only CineSrc and Zoryva are selectable, CineSrc stays default', () => {
   assert.deepEqual(PLAYBACK_SOURCES.map(s => s.id), ['cinesrc', 'zoryva']);
@@ -32,6 +33,12 @@ test('Zoryva movie/TV URLs use TMDB IDs and encoded theme color', () => {
 test('CineSrc resume and episode syntax is unchanged', () => {
   assert.equal(embedUrl('tv', 1429, 2, 3, { autoplay: true, startAt: 42.9 }),
     'https://cinesrc.st/embed/tv/1429?s=2&e=3&autoplay=true&t=42');
+});
+test('CineSrc supports Krzene custom controls and quality parameters', () => {
+  assert.equal(
+    embedUrl('movie', 129, null, null, { customControls: true, quality: '1080' }),
+    'https://cinesrc.st/embed/movie/129?controls=false&seek=10&color=%23e21927&continueprompt=false&quality=1080',
+  );
 });
 test('season/cour and episode offsets map to AniList, not TMDB IDs', () => {
   const mappings = mappingsFromDataset({
@@ -65,4 +72,10 @@ test('movie IDs and discontinuous/open-ended ranges are supported', () => {
   } } }, 'tv', 1);
   assert.deepEqual(resolveAnimeEpisode(mappings, 1, 3), { anilistId: 2, episode: 4 });
   assert.deepEqual(resolveAnimeEpisode(mappings, 1, 7), { anilistId: 2, episode: 8 });
+});
+test('browser subtitle parser follows timing, offset and speed', () => {
+  const cues = parseSubtitle('1\n00:00:01,000 --> 00:00:03,000\nHello web\n');
+  assert.equal(subtitleTextAt(cues, 2, 0, 1), 'Hello web');
+  assert.equal(subtitleTextAt(cues, 1.4, 0.5, 1), null);
+  assert.equal(subtitleTextAt(cues, 1, 0, 2), 'Hello web');
 });

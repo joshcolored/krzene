@@ -52,6 +52,10 @@ Copy `.env.example` to `.env.local` and provide real values:
 
 ```dotenv
 TMDB_API_KEY=your_tmdb_key
+OPENSUBTITLES_API_KEY=your_opensubtitles_api_key
+OPENSUBTITLES_USER_AGENT=Krzene v1
+OPENSUBTITLES_USERNAME=your_opensubtitles_username
+OPENSUBTITLES_PASSWORD=your_opensubtitles_password
 WATCHMODE_API_KEY=your_watchmode_api_key
 WATCHMODE_REGION=PH
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
@@ -61,6 +65,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 Use a Supabase publishable key (`sb_publishable_...`) in the public variable. Never put a service-role key or another secret key in a `NEXT_PUBLIC_` variable.
 
 `WATCHMODE_API_KEY` is server-only. The watch page maps each TMDB ID to Watchmode and displays legal subscription, free, rental, and purchase links for `WATCHMODE_REGION`. Watchmode is an availability provider, not an embedded playback server.
+
+The OpenSubtitles variables are server-only. Create a free OpenSubtitles.com account, open [API Consumers](https://www.opensubtitles.com/en/consumers), and create an API key for Krzene. While testing, enable **Under dev** for the consumer's temporary quota of up to 100 downloads per day and leave **Allow anonymous downloads** disabled. That dashboard setting applies the developer quota; there is no separate `dev_mode` request parameter. Put the new key and account credentials in the repository-root `.env.local` file shown above—not in the Flutter app or any `NEXT_PUBLIC_` variable. The API key enables searching, while the free account credentials create the bearer token required for downloads. You can instead supply a refreshed `OPENSUBTITLES_TOKEN`. Restart the Next.js server after changing `.env.local`. The daily allowance is shared by the deployed Krzene server, so Subtitle Cat plus the phone's native file picker remains the unlimited free fallback. Imported SRT/VTT files and downloaded subtitle text are stored only in the app's on-device SQLite database; selected phone files are never uploaded by Krzene.
 
 Start the development server:
 
@@ -216,6 +222,10 @@ Add these variables to Production, Preview, and Development:
 
 ```text
 TMDB_API_KEY
+OPENSUBTITLES_API_KEY
+OPENSUBTITLES_USER_AGENT
+OPENSUBTITLES_USERNAME
+OPENSUBTITLES_PASSWORD
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 ```
@@ -240,8 +250,8 @@ The native project lives in `mobile/` and keeps the web application unchanged. I
 - Google sign-in with the same Supabase project
 - Shared viewer profiles and profile-specific libraries
 - Kids-profile filtering
-- CineSrc as the default player and Zoryva as an alternative
-- Manual source selection and mobile popup/ad-navigation filtering
+- CineSrc playback behind Krzene's custom controls and mobile popup/ad-navigation filtering
+- Local SRT/VTT import, automatic OpenSubtitles lookup, and per-episode SQLite subtitle settings
 - Android and iOS deep-link callback handling
 
 The Flutter app reads catalog metadata through Krzene's Next.js API, so `TMDB_API_KEY` remains server-side. Deploy the current web project before using the production API URL.

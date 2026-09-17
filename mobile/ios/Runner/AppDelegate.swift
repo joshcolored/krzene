@@ -209,10 +209,10 @@ private final class KrzeneNavigationView: NSObject, FlutterPlatformView, UITabBa
                                   ("Library", "NavLibrary", 2),
                                   ("Profile", "NavProfile", 3),
                                   ("Search", "NavSearch", 1)] {
-      let image = resizedTemplate(named: asset, size: CGSize(width: 18, height: 18))
+      let image = resizedTemplate(named: asset, size: CGSize(width: 22, height: 22))
       let item = UITabBarItem(title: title, image: image, tag: index)
       let titleAttributes: [NSAttributedString.Key: Any] = [
-        .font: UIFont.systemFont(ofSize: 10, weight: .medium)
+        .font: UIFont.systemFont(ofSize: 11, weight: .semibold)
       ]
       item.setTitleTextAttributes(titleAttributes, for: .normal)
       item.setTitleTextAttributes(titleAttributes, for: .selected)

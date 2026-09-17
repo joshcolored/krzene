@@ -1,62 +1,24 @@
 "use client";
 
-/**
- * Optional bridge for providers implementing the PLAYER_EVENT protocol.
- *
- * The embed is a chain of nested frames, each of which relays postMessages in
- * BOTH directions:
- *
- *   our page
- *    └─ mirror   /embed/{type}/{id}         draws #vs-bar — the title label
- *        └─ gate /embed/{type}/{id}?vs=…    landing poster + big play button
- *            └─ gate /embed/player/…        the real <video> + its own chrome
- *
- * Because the relay is bidirectional, the top window can both hear the player
- * and command it. That is what lets Krzene's transport be real rather than
- * decorative, and what makes it safe to seal the provider's duplicate chrome
- * off — nothing is lost by hiding controls we can now drive ourselves.
- *
- * Commands understood by the innermost player:
- *   { player: true, action: "play" | "pause" | "mute" | "unmute" }
- *   { player: true, action: "seek<n>" | "seek+<n>" | "seek-<n>" }   seconds
- *
- * (It also takes { type: "TV_SET", season, episode }. Krzene does not use it —
- * switching episodes changes the embed URL, which remounts the frame, and a
- * clean remount is more predictable than steering a player mid-stream.)
- *
- * Events it sends back up:
- *   { type: "PLAYER_EVENT", data: { player_status, player_progress,
- *                                   player_duration, quality, … } }
- *   { type: "PLAYER_UI", visible }     provider chrome shown / hidden
- *   { type: "PLAYER_TITLE", title }    also makes the mirror show #vs-bar
- *   { type: "TV_INFO" | "TV_STATE", … }
- *
- * None of this is contractual. Mirrors that ship a bare iframe wrapper (or
- * change the protocol) simply never connect, so every caller has to keep
- * working with `connected: false`.
- */
-
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-
-/* ------------------------------------------------------------------ *
- * State
- * ------------------------------------------------------------------ */
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 
 export type PlaybackBridgeState = {
-  /** A PLAYER_EVENT has arrived, so the transport below this is real. */
   connected: boolean;
   playing: boolean;
-  /** Seconds, interpolated between the player's 5-second progress reports. */
+  buffering: boolean;
   position: number;
   duration: number;
-  /**
-   * The last mute state we asked for. The player emits no volume events, so
-   * this reflects our own command rather than an observation.
-   */
   muted: boolean;
-  /** The innermost player is drawing its title + control bar right now. */
+  playbackRate: number;
+  volume: number;
   chromeVisible: boolean;
-  /** The mirror is drawing its own #vs-bar title strip right now. */
   barVisible: boolean;
 };
 
@@ -64,7 +26,8 @@ export type PlaybackRemote = {
   play(): void;
   pause(): void;
   setMuted(next: boolean): void;
-  /** Absolute position, in seconds. */
+  setVolume(next: number): void;
+  setPlaybackRate(next: number): void;
   seekTo(seconds: number): void;
   seekBy(delta: number): void;
 };
@@ -72,84 +35,88 @@ export type PlaybackRemote = {
 const IDLE: PlaybackBridgeState = {
   connected: false,
   playing: false,
+  buffering: true,
   position: 0,
   duration: 0,
   muted: false,
+  playbackRate: 1,
+  volume: 1,
   chromeVisible: false,
   barVisible: false,
 };
-
-/* ------------------------------------------------------------------ *
- * Payload coercion — everything below arrives from another origin, so
- * it is treated as untrusted data and never as an instruction.
- * ------------------------------------------------------------------ */
 
 function seconds(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function label(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 24) : null;
-}
-
-/* ------------------------------------------------------------------ *
- * Hook
- * ------------------------------------------------------------------ */
-
+/** CineSrc's documented postMessage bridge with optimistic, stale-safe seek. */
 export function usePlaybackBridge(
   frameRef: RefObject<HTMLIFrameElement | null>,
-  /** Changing this drops all state — pass the embed URL. */
   resetKey: string,
   enabled = true,
 ): [PlaybackBridgeState, PlaybackRemote] {
   const [state, setState] = useState<PlaybackBridgeState>(IDLE);
-
-  /**
-   * Wall-clock anchor for interpolation. The player only reports progress
-   * every 5 seconds; without this the scrub bar would jump in 5s steps.
-   */
   const anchor = useRef<{ at: number; position: number } | null>(null);
   const positionRef = useRef(0);
   const durationRef = useRef(0);
+  const pendingSeek = useRef<{ target: number; at: number } | null>(null);
+  const seekTimer = useRef<number | null>(null);
 
   useEffect(() => {
     positionRef.current = state.position;
     durationRef.current = state.duration;
-  }, [state.position, state.duration]);
+  }, [state.duration, state.position]);
 
   useEffect(() => {
     setState(IDLE);
     anchor.current = null;
     positionRef.current = 0;
+    pendingSeek.current = null;
+    if (seekTimer.current != null) window.clearTimeout(seekTimer.current);
+    seekTimer.current = null;
   }, [resetKey]);
 
-  const send = useCallback(
-    (message: Record<string, unknown>) => {
+  useEffect(
+    () => () => {
+      if (seekTimer.current != null) window.clearTimeout(seekTimer.current);
+    },
+    [],
+  );
+
+  const sendCommand = useCallback(
+    (command: string, args: unknown[] = []) => {
       const target = frameRef.current?.contentWindow;
-      if (!target) return;
-      if (!enabled) return;
-      // Optional protocol commands contain no credentials or user data.
+      if (!target || !enabled) return;
       try {
-        target.postMessage(message, "*");
+        target.postMessage(
+          { type: "cinesrc:command", command, args },
+          "https://cinesrc.st",
+        );
       } catch {
-        /* Frame torn down mid-command. */
+        // The frame may be between source navigations.
       }
     },
     [enabled, frameRef],
   );
 
-  /* ------------------------------ inbound ------------------------------ */
+  const clearPendingSeek = useCallback(() => {
+    pendingSeek.current = null;
+    if (seekTimer.current != null) window.clearTimeout(seekTimer.current);
+    seekTimer.current = null;
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
-
     const onMessage = (event: MessageEvent) => {
-      // Trust is established by identity, not by origin: accept only the frame
-      // this component mounted, and only ever read data off it.
       const frame = frameRef.current;
-      if (!frame || !event.source || event.source !== frame.contentWindow) return;
-
+      if (
+        !frame?.contentWindow ||
+        event.source !== frame.contentWindow ||
+        event.origin !== "https://cinesrc.st"
+      ) {
+        return;
+      }
       let payload: unknown = event.data;
       if (typeof payload === "string") {
         try {
@@ -160,135 +127,161 @@ export function usePlaybackBridge(
       }
       if (!payload || typeof payload !== "object") return;
       const message = payload as Record<string, unknown>;
+      const type = typeof message.type === "string" ? message.type : "";
+      if (!type.startsWith("cinesrc:")) return;
 
-      switch (message.type) {
-        // Mirrors the mirror's own bar: it shows on a title//TV payload and
-        // hides only when the player says its chrome went away.
-        case "PLAYER_TITLE":
-        case "TV_INFO":
-          setState((current) => ({ ...current, barVisible: true }));
-          return;
-
-        case "PLAYER_UI": {
-          const visible = message.visible === true;
-          setState((current) => ({ ...current, chromeVisible: visible, barVisible: visible }));
-          return;
+      const reportedPosition = seconds(message.currentTime);
+      const reportedDuration = seconds(message.duration);
+      let acceptedPosition = reportedPosition;
+      const waiting = pendingSeek.current;
+      if (reportedPosition != null && waiting) {
+        const reached = Math.abs(reportedPosition - waiting.target) <= 2;
+        const expired = Date.now() - waiting.at >= 5000;
+        if (type === "cinesrc:seeked" || reached || expired) {
+          clearPendingSeek();
+        } else {
+          acceptedPosition = null;
         }
-
-        case "PLAYER_EVENT": {
-          const data = message.data as Record<string, unknown> | undefined;
-          if (!data || typeof data !== "object") return;
-
-          const status = label(data.player_status);
-          const position = seconds(data.player_progress);
-          const duration = seconds(data.player_duration);
-
-          if (position != null) anchor.current = { at: Date.now(), position };
-
-          setState((current) => ({
-            ...current,
-            connected: true,
-            // "seeked" says nothing about whether playback resumed, so it
-            // leaves the play/pause state exactly as it was.
-            playing:
-              status === "playing"
-                ? true
-                : status === "paused" || status === "completed"
-                  ? false
-                  : current.playing,
-            position: position ?? current.position,
-            duration: duration && duration > 0 ? duration : current.duration,
-          }));
-          return;
-        }
-
-        default:
-          return;
       }
+      if (acceptedPosition != null) {
+        anchor.current = { at: Date.now(), position: acceptedPosition };
+        positionRef.current = acceptedPosition;
+      }
+      if (reportedDuration != null && reportedDuration > 0) {
+        durationRef.current = reportedDuration;
+      }
+
+      setState((current) => {
+        const next: PlaybackBridgeState = {
+          ...current,
+          connected: type !== "cinesrc:error",
+          position: acceptedPosition ?? current.position,
+          duration:
+            reportedDuration != null && reportedDuration > 0
+              ? reportedDuration
+              : current.duration,
+        };
+        switch (type) {
+          case "cinesrc:ready":
+          case "cinesrc:loadedmetadata":
+            next.connected = true;
+            next.buffering = false;
+            break;
+          case "cinesrc:play":
+            next.playing = true;
+            next.buffering = false;
+            break;
+          case "cinesrc:pause":
+          case "cinesrc:ended":
+            next.playing = false;
+            next.buffering = false;
+            break;
+          case "cinesrc:seeking":
+            next.buffering = true;
+            break;
+          case "cinesrc:seeked":
+            next.buffering = false;
+            break;
+          case "cinesrc:timeupdate":
+            if (!pendingSeek.current) next.buffering = false;
+            break;
+          case "cinesrc:volumechange":
+            next.muted = message.muted === true;
+            next.volume = seconds(message.volume) ?? current.volume;
+            break;
+          case "cinesrc:ratechange":
+            next.playbackRate =
+              seconds(message.playbackRate) ?? current.playbackRate;
+            break;
+          case "cinesrc:error":
+            next.connected = false;
+            next.buffering = false;
+            break;
+        }
+        return next;
+      });
     };
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [enabled, frameRef]);
-
-  /* --------------------------- interpolation --------------------------- */
+  }, [clearPendingSeek, enabled, frameRef]);
 
   useEffect(() => {
-    if (!state.playing || state.duration <= 0) return;
+    if (!state.playing || state.duration <= 0 || state.buffering) return;
     const timer = window.setInterval(() => {
       const base = anchor.current;
-      if (!base) return;
+      if (!base || pendingSeek.current) return;
       setState((current) => {
-        if (!current.playing) return current;
-        const next = Math.min(base.position + (Date.now() - base.at) / 1000, current.duration);
-        // Skip no-op renders; the bar only needs ~4 updates a second.
-        return Math.abs(next - current.position) < 0.2 ? current : { ...current, position: next };
+        if (!current.playing || current.buffering) return current;
+        const next = Math.min(
+          base.position +
+            ((Date.now() - base.at) / 1000) * current.playbackRate,
+          current.duration,
+        );
+        return Math.abs(next - current.position) < 0.2
+          ? current
+          : { ...current, position: next };
       });
     }, 250);
     return () => window.clearInterval(timer);
-  }, [state.playing, state.duration]);
-
-  /* ----------------------- chrome flags are a lease -------------------- *
-   * The player announces its chrome appearing reliably, but "gone" only
-   * arrives when it auto-hides — never if a menu swallows the event or the
-   * frame is torn down mid-animation. A mask driven off a stuck flag would
-   * sit over the picture indefinitely, which is worse than the bar it hides,
-   * so every "visible" claim expires on its own. Anything still on screen
-   * after that window is behind our paused overlay anyway.
-   * --------------------------------------------------------------------- */
-
-  useEffect(() => {
-    if (!state.barVisible && !state.chromeVisible) return;
-    const timer = window.setTimeout(
-      () => setState((current) => ({ ...current, barVisible: false, chromeVisible: false })),
-      5000,
-    );
-    return () => window.clearTimeout(timer);
-  }, [state.barVisible, state.chromeVisible]);
-
-  /* ----------------------------- outbound ----------------------------- */
+  }, [state.buffering, state.duration, state.playbackRate, state.playing]);
 
   const remote = useMemo<PlaybackRemote>(() => {
-    const mark = (position: number) => {
-      anchor.current = { at: Date.now(), position };
-      positionRef.current = position;
+    const markSeek = (target: number) => {
+      pendingSeek.current = { target, at: Date.now() };
+      anchor.current = { at: Date.now(), position: target };
+      positionRef.current = target;
+      if (seekTimer.current != null) window.clearTimeout(seekTimer.current);
+      seekTimer.current = window.setTimeout(() => {
+        clearPendingSeek();
+        setState((current) => ({ ...current, buffering: false }));
+      }, 5000);
+      setState((current) => ({ ...current, position: target, buffering: true }));
     };
 
     return {
       play() {
-        send({ player: true, action: "play" });
-        mark(positionRef.current);
+        sendCommand("play");
+        anchor.current = { at: Date.now(), position: positionRef.current };
         setState((current) => ({ ...current, playing: true }));
       },
       pause() {
-        send({ player: true, action: "pause" });
-        mark(positionRef.current);
+        sendCommand("pause");
         setState((current) => ({ ...current, playing: false }));
       },
       setMuted(next) {
-        send({ player: true, action: next ? "mute" : "unmute" });
+        sendCommand("setMuted", [next]);
         setState((current) => ({ ...current, muted: next }));
       },
+      setVolume(next) {
+        const volume = Math.max(0, Math.min(1, next));
+        sendCommand("setVolume", [volume]);
+        setState((current) => ({ ...current, volume }));
+      },
+      setPlaybackRate(next) {
+        const rate = Math.max(0.25, Math.min(2, next));
+        sendCommand("setPlaybackRate", [rate]);
+        setState((current) => ({ ...current, playbackRate: rate }));
+      },
       seekTo(value) {
-        const target = Math.max(0, Math.round(value));
-        send({ player: true, action: `seek${target}` });
-        mark(target);
-        setState((current) => ({ ...current, position: target }));
+        const total = durationRef.current;
+        const target = Math.max(0, total > 0 ? Math.min(value, total) : value);
+        markSeek(target);
+        sendCommand("seek", [target]);
       },
       seekBy(delta) {
-        const step = Math.round(delta);
-        if (!step) return;
-        send({ player: true, action: `seek${step > 0 ? "+" : "-"}${Math.abs(step)}` });
         const total = durationRef.current;
-        const next = Math.max(
+        const target = Math.max(
           0,
-          total > 0 ? Math.min(positionRef.current + step, total) : positionRef.current + step,
+          total > 0
+            ? Math.min(positionRef.current + delta, total)
+            : positionRef.current + delta,
         );
-        mark(next);
-        setState((current) => ({ ...current, position: next }));
+        markSeek(target);
+        sendCommand("seek", [target]);
       },
     };
-  }, [send]);
+  }, [clearPendingSeek, sendCommand]);
 
   return [state, remote];
 }

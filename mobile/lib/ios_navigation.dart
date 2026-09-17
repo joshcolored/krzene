@@ -38,9 +38,9 @@ class _IosNavigationState extends State<IosNavigation> {
       MediaQuery.paddingOf(context).left + 12,
       0,
       MediaQuery.paddingOf(context).right + 12,
-      // The native tab bar also supplies spacing inside its floating capsule.
-      // Lower the host by 12 points while retaining home-indicator clearance.
-      (MediaQuery.paddingOf(context).bottom - 12).clamp(8.0, double.infinity),
+      // UITabBar already accounts for the iOS home-indicator safe area. Adding
+      // Flutter's inset here a second time lifts the glass capsule too high.
+      0,
     ),
     child: SizedBox(
       // UITabBar reserves space around its floating glass capsule internally.

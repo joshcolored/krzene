@@ -67,6 +67,16 @@ void main() {
       expect(cine.queryParameters, containsPair('s', '2'));
       expect(cine.queryParameters, containsPair('e', '3'));
       expect(cine.queryParameters, containsPair('t', '42'));
+      expect(cine.queryParameters, containsPair('controls', 'false'));
+      expect(cine.queryParameters, containsPair('seek', '10'));
+      expect(cine.queryParameters, containsPair('color', '#e21927'));
+      final configured = playbackUri(
+        source: PlaybackSource.cineSrc,
+        media: movie,
+        quality: '1080',
+      );
+      expect(configured.queryParameters, containsPair('quality', '1080'));
+      expect(configured.queryParameters, containsPair('controls', 'false'));
       expect(
         () => playbackUri(
           source: PlaybackSource.cineSrc,
@@ -94,6 +104,26 @@ void main() {
     expect(find.byTooltip('Playback source'), findsNothing);
     expect(find.textContaining('Source ·'), findsNothing);
     expect(find.text('Zoryva'), findsNothing);
+    expect(find.byTooltip('Rewind 10 seconds'), findsOneWidget);
+    expect(find.byTooltip('Forward 10 seconds'), findsOneWidget);
+    expect(find.byTooltip('Playback settings'), findsOneWidget);
+    expect(find.byTooltip('Fullscreen'), findsOneWidget);
+    await tester.tap(find.byTooltip('Playback settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Playback settings'), findsOneWidget);
+    expect(find.text('Preferred quality'), findsOneWidget);
+    expect(find.text('Krzene subtitles'), findsOneWidget);
+    expect(find.text('Subtitles, audio & servers'), findsNothing);
+    expect(find.text('Volume boost'), findsOneWidget);
+    expect(find.text('100%'), findsOneWidget);
+    expect(find.text('Auto find'), findsOneWidget);
+    expect(find.text('Choose file'), findsOneWidget);
+    expect(find.text('Customize subtitles'), findsOneWidget);
+    expect(
+      find.textContaining('free OpenSubtitles basic tier'),
+      findsOneWidget,
+    );
+    expect(find.text('1.5x'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

@@ -18,6 +18,8 @@ export type EmbedOptions = {
   provider?: PlaybackSource["provider"];
   autoplay?: boolean;
   startAt?: number;
+  customControls?: boolean;
+  quality?: string | null;
   /** Only a verified AniList ID may select Zoryva's anime endpoint. */
   anilistId?: number | null;
 };
@@ -57,8 +59,15 @@ export function embedUrl(
     url.searchParams.set("e", selectedEpisode);
   }
   if (options.autoplay) url.searchParams.set("autoplay", "true");
+  if (options.customControls) {
+    url.searchParams.set("controls", "false");
+    url.searchParams.set("seek", "10");
+    url.searchParams.set("color", "#e21927");
+    url.searchParams.set("continueprompt", "false");
+  }
   if (options.startAt && Number.isFinite(options.startAt) && options.startAt > 0) {
     url.searchParams.set("t", String(Math.floor(options.startAt)));
   }
+  if (options.quality) url.searchParams.set("quality", options.quality);
   return url.toString();
 }

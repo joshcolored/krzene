@@ -14,6 +14,7 @@ Uri playbackUri({
   int season = 1,
   int episode = 1,
   int resumeAt = 0,
+  String? quality,
 }) {
   if (media.tmdbId < 1 || season < 1 || episode < 1) {
     throw ArgumentError('Playback requires positive media and episode IDs.');
@@ -26,9 +27,16 @@ Uri playbackUri({
       if (media.isSeries) 'e': '$episode',
       'autoplay': 'true',
       'muted': 'false',
-      'controls': 'true',
+      'controls': 'false',
+      'seek': '10',
+      'color': '#e21927',
+      'back': 'close',
+      'autonext': 'true',
+      'autoskip': 'false',
+      'prioritize': 'true',
       'continueprompt': 'false',
       if (resumeAt > 0) 't': '$resumeAt',
+      if (quality != null && quality.isNotEmpty) 'quality': quality,
     },
   );
 }
