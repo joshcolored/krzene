@@ -70,6 +70,7 @@ void main() {
       expect(cine.queryParameters, containsPair('controls', 'false'));
       expect(cine.queryParameters, containsPair('seek', '10'));
       expect(cine.queryParameters, containsPair('color', '#e21927'));
+      expect(cine.queryParameters['prioritize'], isNot('true'));
       final configured = playbackUri(
         source: PlaybackSource.cineSrc,
         media: movie,
@@ -120,7 +121,7 @@ void main() {
     expect(find.text('Choose file'), findsOneWidget);
     expect(find.text('Customize subtitles'), findsOneWidget);
     expect(
-      find.textContaining('free OpenSubtitles basic tier'),
+      find.textContaining('OpenSubtitles developer consumer'),
       findsOneWidget,
     );
     expect(find.text('1.5x'), findsOneWidget);

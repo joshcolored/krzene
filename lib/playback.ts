@@ -17,6 +17,7 @@ export type EmbedOptions = {
   host?: string;
   provider?: PlaybackSource["provider"];
   autoplay?: boolean;
+  muted?: boolean;
   startAt?: number;
   customControls?: boolean;
   quality?: string | null;
@@ -59,6 +60,7 @@ export function embedUrl(
     url.searchParams.set("e", selectedEpisode);
   }
   if (options.autoplay) url.searchParams.set("autoplay", "true");
+  if (options.muted) url.searchParams.set("muted", "true");
   if (options.customControls) {
     url.searchParams.set("controls", "false");
     url.searchParams.set("seek", "10");

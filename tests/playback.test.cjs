@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const ts = require('typescript');
+const vm = require('node:vm');
 
 function load(name) {
   const filename = path.resolve(__dirname, '../lib', name + '.ts');
@@ -18,6 +19,7 @@ function load(name) {
 }
 const { embedUrl, PLAYBACK_SOURCES } = load('playback');
 const { parseSubtitle, subtitleTextAt } = load('browser-subtitles');
+const { parseCineSrcMessage, reducePlaybackEvent } = load('playback-bridge');
 const { mappingsFromDataset, resolveAnimeEpisode } = load('anime-mappings');
 test('only CineSrc and Zoryva are selectable, CineSrc stays default', () => {
   assert.deepEqual(PLAYBACK_SOURCES.map(s => s.id), ['cinesrc', 'zoryva']);
@@ -78,4 +80,155 @@ test('browser subtitle parser follows timing, offset and speed', () => {
   assert.equal(subtitleTextAt(cues, 2, 0, 1), 'Hello web');
   assert.equal(subtitleTextAt(cues, 1.4, 0.5, 1), null);
   assert.equal(subtitleTextAt(cues, 1, 0, 2), 'Hello web');
+});
+
+test('custom playback supports browser-safe autoplay without losing episode resume', () => {
+  const url = new URL(embedUrl('tv', 1429, 2, 3, {
+    autoplay: true, muted: true, customControls: true, startAt: 42,
+  }));
+  assert.equal(url.searchParams.get('muted'), 'true');
+  assert.equal(url.searchParams.get('t'), '42');
+  assert.equal(url.searchParams.get('continueprompt'), 'false');
+});
+
+test('CineSrc readiness follows media events, not source or command messages', () => {
+  const idle = { connected: false, playing: false, buffering: true, position: 0, duration: 0 };
+  for (const message of [
+    { type: 'cinesrc:sourceused', sourceId: 'test' },
+    { type: 'cinesrc:command', command: 'play' },
+    { type: 'cinesrc:response', command: 'getPaused', result: {} },
+  ]) assert.equal(reducePlaybackEvent(idle, message), idle);
+  const ready = reducePlaybackEvent(idle, { type: 'cinesrc:ready' });
+  assert.equal(ready.connected, true);
+  assert.equal(ready.buffering, true);
+  const metadata = reducePlaybackEvent(ready, { type: 'cinesrc:loadedmetadata', duration: 120 });
+  assert.equal(metadata.duration, 120);
+  assert.equal(metadata.buffering, false);
+  const playing = reducePlaybackEvent(metadata, { type: 'cinesrc:play' });
+  assert.equal(playing.playing, true);
+  const recovery = reducePlaybackEvent(playing, { type: 'cinesrc:error', error: 'temporary network error' });
+  assert.equal(recovery.connected, true);
+  assert.equal(recovery.buffering, true);
+  assert.equal(reducePlaybackEvent(recovery, { type: 'cinesrc:play' }).buffering, false);
+});
+
+test('autoplay rejection allows a user play action and invalid messages are ignored', () => {
+  assert.equal(parseCineSrcMessage('not JSON'), null);
+  assert.equal(parseCineSrcMessage({ type: 'advertisement' }), null);
+  const blocked = reducePlaybackEvent({ connected: true, playing: false, buffering: true }, {
+    type: 'cinesrc:error', error: 'NotAllowedError: user gesture required',
+  });
+  assert.equal(blocked.autoplayBlocked, true);
+  assert.equal(blocked.buffering, false);
+  assert.equal(reducePlaybackEvent(blocked, { type: 'cinesrc:play' }).autoplayBlocked, false);
+});
+
+function mobileBridge({ paused = false, readyState = 4, playError } = {}) {
+  const dart = fs.readFileSync(path.resolve(__dirname, '../mobile/lib/player_scripts.dart'), 'utf8');
+  const script = dart.match(/const krzenePlayerScript = r'''([\s\S]*?)''';/)[1];
+  const messages = [], intervals = [], timers = [];
+  let observer, audioContexts = 0, playCalls = 0;
+  const listeners = new Map();
+  const track = { mode: 'showing' };
+  const video = {
+    isConnected: true, paused, readyState, currentTime: 42, duration: 120,
+    muted: false, playbackRate: 1, volume: 1,
+    textTracks: Object.assign([track], { addEventListener() {} }),
+    setAttribute() {},
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    play() { playCalls++; return playError ? Promise.reject(playError) : Promise.resolve(); },
+  };
+  const document = {
+    documentElement: { appendChild() {} },
+    createElement() { return {}; },
+    querySelectorAll(selector) { return selector === 'video' ? [video] : []; },
+  };
+  const window = {
+    addEventListener() {}, setInterval(fn) { intervals.push(fn); },
+    AudioContext: function () {
+      audioContexts++;
+      this.createMediaElementSource = () => ({ connect() {} });
+      this.createGain = () => ({ connect() {}, gain: { setTargetAtTime() {} } });
+      this.resume = () => Promise.resolve();
+    },
+  };
+  video.ownerDocument = { defaultView: window };
+  const context = vm.createContext({ window, document,
+    MutationObserver: function (callback) { observer = callback; this.observe = () => {}; },
+    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    KrzeneBridge: { postMessage: value => messages.push(JSON.parse(value)) },
+  });
+  vm.runInContext(script, context);
+  return { video, messages, window,
+    executeAgain: () => vm.runInContext(script, context),
+    mutate: () => { observer(); while (timers.length) timers.shift()(); },
+    emit: (type) => listeners.get(type)?.(),
+    tick: () => intervals.forEach(fn => fn()),
+    get audioContexts() { return audioContexts; },
+    get playCalls() { return playCalls; },
+  };
+}
+
+test('mobile bridge observes startup without extra play, seek or audio initialization', () => {
+  const bridge = mobileBridge();
+  bridge.executeAgain();
+  for (let i = 0; i < 10; i++) { bridge.mutate(); bridge.tick(); }
+  assert.equal(bridge.playCalls, 0);
+  assert.equal(bridge.audioContexts, 0);
+  assert.equal(bridge.video.currentTime, 42);
+  assert.equal(bridge.messages.at(-1).data.paused, false);
+  bridge.emit('playing');
+  bridge.video.paused = true;
+  bridge.emit('pause');
+  bridge.emit('canplay');
+  bridge.mutate();
+  assert.equal(bridge.playCalls, 0, 'must not restart user-paused playback');
+  bridge.window.__krzeneSetBoost(2);
+  assert.equal(bridge.audioContexts, 1);
+  bridge.window.__krzeneSetBoost(1);
+  bridge.mutate();
+  assert.equal(bridge.audioContexts, 1);
+});
+
+test('mobile loading state stays truthful and the one fallback waits for playable media', () => {
+  const bridge = mobileBridge({ paused: true, readyState: 0 });
+  bridge.tick(); bridge.mutate();
+  assert.equal(bridge.playCalls, 0);
+  assert.equal(bridge.messages.at(-1).data.readyState, 0);
+  bridge.video.readyState = 4;
+  bridge.emit('canplay'); bridge.emit('canplay'); bridge.mutate();
+  assert.equal(bridge.playCalls, 1);
+  bridge.video.paused = false;
+  bridge.video.readyState = 2;
+  bridge.emit('waiting');
+  assert.equal(bridge.messages.at(-1).data.buffering, true);
+});
+
+test('mobile never treats an interrupted play as an autoplay rejection', async () => {
+  const bridge = mobileBridge({ paused: true, playError: { name: 'AbortError' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bridge.playCalls, 1);
+  assert.equal(bridge.video.muted, false);
+  bridge.mutate(); bridge.emit('canplay');
+  assert.equal(bridge.playCalls, 1);
+});
+
+test('mobile retries muted only for an autoplay permission rejection', async () => {
+  const bridge = mobileBridge({ paused: true, playError: { name: 'NotAllowedError' } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bridge.playCalls, 2);
+  assert.equal(bridge.video.muted, true);
+  assert.equal(bridge.messages.at(-1).data.phase, 'autoplayblocked');
+  bridge.mutate(); bridge.emit('canplay');
+  assert.equal(bridge.playCalls, 2);
+});
+
+test('mobile snapshots preserve a media error until the provider recovers', () => {
+  const bridge = mobileBridge();
+  bridge.video.error = { code: 2 };
+  bridge.emit('error'); bridge.tick();
+  assert.equal(bridge.messages.at(-1).data.buffering, true);
+  bridge.video.error = null;
+  bridge.emit('playing'); bridge.tick();
+  assert.equal(bridge.messages.at(-1).data.buffering, false);
 });

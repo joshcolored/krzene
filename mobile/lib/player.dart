@@ -15,6 +15,7 @@ import 'controller.dart';
 import 'design.dart';
 import 'models.dart';
 import 'playback.dart';
+import 'player_scripts.dart';
 import 'subtitles.dart';
 
 class WatchScreen extends StatefulWidget {
@@ -67,13 +68,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   int episode = 1;
   Timer? progressTimer;
   Timer? controlsTimer;
-  Timer? readyFallbackTimer;
   Timer? seekTimeoutTimer;
   double position = 0;
-  double resumeTarget = 0;
   double duration = 0;
   int savedProgressBucket = 0;
-  bool resumeSent = false;
   bool playerPageReady = false;
   bool appActive = true;
   bool? playerReportedPlaying;
@@ -88,7 +86,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     season = widget.resume?.season ?? 1;
     episode = widget.resume?.episode ?? 1;
     position = widget.resume?.position ?? 0;
-    resumeTarget = position;
     duration = widget.resume?.duration ?? 0;
     if (widget.playerPreview != null) {
       loadingSource = false;
@@ -136,23 +133,12 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             onPageStarted: (_) {
               playerPageReady = false;
               playerReady = false;
-              readyFallbackTimer?.cancel();
               lastProgressTick = DateTime.now();
             },
             onPageFinished: (_) {
               playerPageReady = true;
               lastProgressTick = DateTime.now();
               _installPlaybackBridge();
-              _preparePlayerPage();
-              readyFallbackTimer?.cancel();
-              readyFallbackTimer = Timer(const Duration(seconds: 12), () {
-                if (mounted && loadingSource) {
-                  setState(() {
-                    loadingSource = false;
-                    buffering = false;
-                  });
-                }
-              });
             },
             onNavigationRequest: _handleNavigation,
           ),
@@ -170,58 +156,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _installPlaybackBridge() async {
-    final resumeAt = _resumePositionForSelection().round();
     try {
-      await web.runJavaScript('''
-        if (!window.__krzeneBridgeInstalled) {
-          window.__krzeneBridgeInstalled = true;
-          window.addEventListener('message', function (event) {
-            try {
-              if (event.origin !== 'https://cinesrc.st') return;
-              KrzeneBridge.postMessage(
-                typeof event.data === 'string'
-                  ? event.data
-                  : JSON.stringify(event.data)
-              );
-            } catch (_) {}
-          });
-
-          const resumeAt = $resumeAt;
-          let resumeApplied = resumeAt < 5;
-          const reportVideos = function (root) {
-            try {
-              root.querySelectorAll('video').forEach(function (video) {
-                video.playsInline = true;
-                video.setAttribute('playsinline', '');
-                video.setAttribute('webkit-playsinline', '');
-                Array.from(video.textTracks || []).forEach((track) => {
-                  track.mode = 'disabled';
-                });
-                if (!resumeApplied && video.readyState > 0) {
-                  video.currentTime = Math.min(resumeAt, video.duration || resumeAt);
-                  resumeApplied = true;
-                }
-                KrzeneBridge.postMessage(JSON.stringify({
-                  type: 'KRZENE_PROGRESS',
-                  data: {
-                    position: video.currentTime || 0,
-                    duration: Number.isFinite(video.duration) ? video.duration : 0,
-                    paused: video.paused
-                  }
-                }));
-              });
-              root.querySelectorAll('iframe').forEach(function (frame) {
-                try {
-                  if (frame.contentDocument) reportVideos(frame.contentDocument);
-                } catch (_) {}
-              });
-            } catch (_) {}
-          };
-          window.setInterval(function () { reportVideos(document); }, 1500);
-        }
-      ''');
+      await web.runJavaScript(krzenePlayerScript);
     } catch (_) {
-      // Mirrors without script access still play; they simply cannot sync progress.
+      // The document can be between navigations; onPageFinished retries.
     }
   }
 
@@ -263,135 +201,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     return NavigationDecision.navigate;
   }
 
-  Future<void> _preparePlayerPage() async {
-    try {
-      await web.runJavaScript(r'''
-        (() => {
-          if (window.__krzenePlayerPrepared) return;
-          window.__krzenePlayerPrepared = true;
-          window.open = () => null;
-
-          const removeAds = () => {
-            const selectors = [
-              '[class*="popunder" i]', '[id*="popunder" i]',
-              '[class*="popup-ad" i]', '[id*="popup-ad" i]',
-              '[class*="ad-overlay" i]', '[id*="ad-overlay" i]',
-              'iframe[src*="doubleclick.net"]',
-              'iframe[src*="googlesyndication.com"]',
-              'iframe[src*="popads.net"]'
-            ];
-            document.querySelectorAll(selectors.join(',')).forEach((node) => node.remove());
-          };
-
-          const disableNativeSubtitles = (root) => {
-            root.querySelectorAll('track[kind="subtitles"], track[kind="captions"]')
-              .forEach((track) => { track.track.mode = 'disabled'; });
-            root.querySelectorAll('video').forEach((video) => {
-              video.playsInline = true;
-              video.setAttribute('playsinline', '');
-              video.setAttribute('webkit-playsinline', '');
-              Array.from(video.textTracks || []).forEach((track) => {
-                track.mode = 'disabled';
-              });
-            });
-          };
-
-          if (!document.getElementById('krzene-no-native-captions')) {
-            const style = document.createElement('style');
-            style.id = 'krzene-no-native-captions';
-            style.textContent = 'video::cue { color: transparent !important; background: transparent !important; }';
-            document.documentElement.appendChild(style);
-          }
-
-          window.__krzeneBoostLevel ||= 1;
-          window.__krzeneSetBoost = (level) => {
-            const gain = Math.max(1, Math.min(3, Number(level) || 1));
-            window.__krzeneBoostLevel = gain;
-            const attach = (root) => {
-              try {
-                const ownerWindow = root.defaultView || window;
-                const AudioEngine = ownerWindow.AudioContext || ownerWindow.webkitAudioContext;
-                root.querySelectorAll('video').forEach((video) => {
-                  video.volume = 1;
-                  if (!AudioEngine) return;
-                  try {
-                    ownerWindow.__krzeneAudioContext ||= new AudioEngine();
-                    if (!video.__krzeneGain) {
-                      const source = ownerWindow.__krzeneAudioContext
-                        .createMediaElementSource(video);
-                      const gainNode = ownerWindow.__krzeneAudioContext.createGain();
-                      source.connect(gainNode);
-                      gainNode.connect(ownerWindow.__krzeneAudioContext.destination);
-                      video.__krzeneGain = gainNode;
-                    }
-                    const context = ownerWindow.__krzeneAudioContext;
-                    video.__krzeneGain.gain.cancelScheduledValues(context.currentTime);
-                    video.__krzeneGain.gain.setTargetAtTime(
-                      gain,
-                      context.currentTime,
-                      0.015
-                    );
-                    context.resume().catch(() => {});
-                  } catch (_) {}
-                });
-                root.querySelectorAll('iframe').forEach((frame) => {
-                  try {
-                    if (frame.contentDocument) attach(frame.contentDocument);
-                  } catch (_) {}
-                });
-              } catch (_) {}
-            };
-            attach(document);
-          };
-
-          const startPlayback = () => {
-            document.querySelectorAll('video').forEach((video) => {
-              video.autoplay = true;
-              video.playsInline = true;
-              video.setAttribute('playsinline', '');
-              video.setAttribute('webkit-playsinline', '');
-              video.controls = false;
-              video.play().catch(() => {
-                video.muted = true;
-                video.play().catch(() => {});
-              });
-            });
-            const buttons = document.querySelectorAll([
-              '.vjs-big-play-button', '.jw-icon-playback',
-              'button[aria-label*="play" i]', '[class*="play-button" i]'
-            ].join(','));
-            buttons.forEach((button) => {
-              if (button.offsetWidth > 0 && button.offsetHeight > 0) button.click();
-            });
-          };
-
-          removeAds();
-          disableNativeSubtitles(document);
-          new MutationObserver(() => {
-            removeAds();
-            disableNativeSubtitles(document);
-            window.__krzeneSetBoost(window.__krzeneBoostLevel);
-          }).observe(document.documentElement, {
-            childList: true, subtree: true
-          });
-          startPlayback();
-          [500, 1400, 2800].forEach((delay) => setTimeout(() => {
-            removeAds();
-            disableNativeSubtitles(document);
-            startPlayback();
-            window.__krzeneSetBoost(window.__krzeneBoostLevel);
-          }, delay));
-          window.setInterval(() => {
-            window.__krzeneSetBoost(window.__krzeneBoostLevel);
-          }, 2000);
-        })();
-      ''');
-    } catch (_) {
-      // Cross-origin provider internals may reject script access; URL autoplay
-      // and the native WebView media setting still apply in that case.
-    }
-  }
-
   Future<void> _enterImmersive() async {
     await SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
@@ -426,11 +235,11 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       if (decoded is! Map) return;
       final type = decoded['type']?.toString();
       if (type == 'cinesrc:error') {
-        unawaited(widget.controller.markCineSrcUnavailable(widget.media));
+        // A video error may be recoverable by CineSrc. It does not prove the
+        // title is unavailable and must not remove it from the catalog.
         if (mounted) {
           setState(() {
-            loadingSource = false;
-            buffering = false;
+            buffering = true;
           });
         }
         return;
@@ -450,7 +259,10 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       );
       if (nextPosition == null) return;
 
-      final acceptedPosition = _acceptPlayerPosition(nextPosition);
+      final acceptedPosition = _acceptPlayerPosition(
+        nextPosition,
+        seekFinished: type == 'KRZENE_PROGRESS' && data['phase'] == 'seeked',
+      );
       if (acceptedPosition) position = nextPosition;
       if (nextDuration != null && nextDuration > 0) duration = nextDuration;
       lastExactProgressAt = DateTime.now();
@@ -463,21 +275,33 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         }
       } else if (type == 'KRZENE_PROGRESS') {
         playerReportedPlaying = data['paused'] == false;
+        final readyState = (data['readyState'] as num?)?.toInt() ?? 0;
+        playerReady = readyState > 0;
+        loadingSource = readyState < 2;
+        buffering =
+            pendingSeekTarget != null ||
+            data['buffering'] == true ||
+            data['phase'] == 'error';
+        muted = data['muted'] == true;
+        final rate = _seconds(data['playbackRate']);
+        if (rate != null && rate > 0) playbackRate = rate;
+        if (data['phase'] == 'playing') _scheduleControlsHide();
+        if (data['phase'] == 'autoplayblocked') {
+          loadingSource = false;
+          buffering = false;
+          controlsVisible = true;
+        }
+        if (mounted) setState(() {});
       }
 
-      if (mounted &&
+      if (type == 'PLAYER_EVENT' &&
+          mounted &&
           (loadingSource ||
               (buffering && acceptedPosition && pendingSeekTarget == null))) {
         setState(() {
           loadingSource = false;
           buffering = false;
         });
-      }
-
-      if (!resumeSent && resumeTarget >= 5) {
-        resumeSent = true;
-        final target = resumeTarget.round();
-        _sendCommand('seek', [target]);
       }
 
       _persistIfNeeded();
@@ -512,7 +336,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
         changed = true;
         if (playbackRate != 1) _sendCommand('setPlaybackRate', [playbackRate]);
         if (muted) _sendCommand('setMuted', [true]);
-        unawaited(_preparePlayerPage());
         if (volumeBoost != 1) unawaited(_applyVolumeBoost(volumeBoost));
       case 'cinesrc:play':
         playerReportedPlaying = true;
@@ -646,16 +469,19 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       'args': [target],
     });
     try {
-      // Send CineSrc's documented command and update any directly accessible
-      // media element in the same JavaScript turn. This avoids an extra bridge
-      // round-trip on iOS while preserving the provider fallback.
+      // Seek the accessible media directly, or use CineSrc's command as a
+      // fallback. Never do both: duplicate seeks can restart buffering.
       await web.runJavaScript('''
         (() => {
           const target = ${target.toStringAsFixed(3)};
+          let applied = false;
           const seekVideos = (root) => {
             try {
               root.querySelectorAll('video').forEach((video) => {
-                if (video.readyState > 0) video.currentTime = target;
+                if (!applied && video.readyState > 0) {
+                  video.currentTime = target;
+                  applied = true;
+                }
               });
               root.querySelectorAll('iframe').forEach((frame) => {
                 try {
@@ -665,7 +491,7 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
             } catch (_) {}
           };
           seekVideos(document);
-          window.postMessage($message, 'https://cinesrc.st');
+          if (!applied) window.postMessage($message, 'https://cinesrc.st');
         })();
       ''');
     } catch (_) {
@@ -706,20 +532,20 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     if (!playerPageReady || !appActive) return;
     if (pendingSeekTarget != null) return;
 
-    final exactIsFresh =
-        lastExactProgressAt != null &&
-        now.difference(lastExactProgressAt!) < const Duration(seconds: 8);
-    if (exactIsFresh && playerReportedPlaying == false) return;
+    // Loading is not playback. Never create fake resume timestamps while a
+    // server is resolving, or seek that invented time into the next attempt.
+    if (playerReportedPlaying != true || loadingSource || buffering) return;
 
     final stalled =
         playerReportedPlaying == true &&
         lastExactProgressAt != null &&
         now.difference(lastExactProgressAt!) > const Duration(seconds: 6);
     if (stalled != buffering && mounted) setState(() => buffering = stalled);
+    if (stalled) return;
 
     final elapsed = now.difference(previousTick).inMilliseconds / 1000;
     if (elapsed > 0 && elapsed < 3) {
-      position += elapsed;
+      position += elapsed * playbackRate;
       // Playback time is intentionally kept outside setState so provider
       // events remain cheap. Local subtitles still need their own repaint
       // clock after the transport fades out, otherwise the visible cue freezes
@@ -737,10 +563,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       savedProgressBucket = bucket;
       unawaited(_persistProgress());
     }
-  }
-
-  double _resumePositionForSelection() {
-    return resumeTarget;
   }
 
   double? _seconds(Object? value) {
@@ -794,10 +616,8 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     _clearPendingSeek();
     setState(() {
       loadingSource = true;
-      resumeTarget = position;
       playerPageReady = false;
       playerReady = false;
-      resumeSent = false;
       playerReportedPlaying = null;
       lastExactProgressAt = null;
       lastProgressTick = DateTime.now();
@@ -834,7 +654,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
       position = 0;
       duration = 0;
       savedProgressBucket = 0;
-      resumeSent = false;
       playerPageReady = false;
       playerReportedPlaying = null;
       lastExactProgressAt = null;
@@ -874,7 +693,6 @@ class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     progressTimer?.cancel();
     controlsTimer?.cancel();
-    readyFallbackTimer?.cancel();
     seekTimeoutTimer?.cancel();
     if (position >= 5) unawaited(_persistProgress());
     if (immersive) unawaited(_restoreSystemUi());

@@ -18,6 +18,7 @@ export type PlaybackBridgeState = {
   muted: boolean;
   playbackRate: number;
   volume: number;
+  autoplayBlocked: boolean;
   chromeVisible: boolean;
   barVisible: boolean;
 };
@@ -41,13 +42,89 @@ const IDLE: PlaybackBridgeState = {
   muted: false,
   playbackRate: 1,
   volume: 1,
+  autoplayBlocked: false,
   chromeVisible: false,
   barVisible: false,
 };
 
 function seconds(value: unknown): number | null {
+  if (value == null || value === "" || typeof value === "boolean") return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function parseCineSrcMessage(payload: unknown): Record<string, unknown> | null {
+  try {
+    if (typeof payload === "string") payload = JSON.parse(payload);
+    if (!payload || typeof payload !== "object") return null;
+    const message = payload as Record<string, unknown>;
+    return typeof message.type === "string" && message.type.startsWith("cinesrc:")
+      ? message : null;
+  } catch {
+    return null;
+  }
+}
+
+// Only media lifecycle events prove readiness. In particular sourceused,
+// command echoes and getter responses must not pretend that video is playing.
+export function reducePlaybackEvent(
+  current: PlaybackBridgeState,
+  message: Record<string, unknown>,
+): PlaybackBridgeState {
+  const position = seconds(message.currentTime);
+  const duration = seconds(message.duration);
+  const next = { ...current };
+  switch (message.type) {
+    case "cinesrc:ready":
+      next.connected = true;
+      break;
+    case "cinesrc:loadedmetadata":
+      next.connected = true;
+      next.buffering = false;
+      break;
+    case "cinesrc:play":
+      next.connected = true;
+      next.playing = true;
+      next.buffering = false;
+      next.autoplayBlocked = false;
+      break;
+    case "cinesrc:pause":
+    case "cinesrc:ended":
+      next.playing = false;
+      next.buffering = false;
+      break;
+    case "cinesrc:timeupdate":
+      if (duration != null && duration > 0) next.connected = true;
+      if (position != null && position > current.position) next.buffering = false;
+      break;
+    case "cinesrc:seeking":
+      next.buffering = true;
+      break;
+    case "cinesrc:seeked":
+      next.buffering = false;
+      break;
+    case "cinesrc:volumechange":
+      next.muted = message.muted === true;
+      next.volume = seconds(message.volume) ?? current.volume;
+      break;
+    case "cinesrc:ratechange":
+      next.playbackRate = seconds(message.playbackRate) ?? current.playbackRate;
+      break;
+    case "cinesrc:error": {
+      const reason = typeof message.error === "string" ? message.error : "";
+      next.autoplayBlocked = /NotAllowedError|autoplay|user (?:gesture|interaction)|didn't interact/i.test(reason);
+      // CineSrc recovers its own stream errors. Keep the bridge attached so
+      // recovery does not restart the embed and repeat source discovery.
+      next.buffering = !next.autoplayBlocked;
+      next.playing = false;
+      break;
+    }
+    default:
+      return current;
+  }
+  if (position != null) next.position = position;
+  if (duration != null && duration > 0) next.duration = duration;
+  return next;
 }
 
 /** CineSrc's documented postMessage bridge with optimistic, stale-safe seek. */
@@ -69,9 +146,10 @@ export function usePlaybackBridge(
   }, [state.duration, state.position]);
 
   useEffect(() => {
-    setState(IDLE);
+    setState({ ...IDLE, muted: new URL(resetKey).searchParams.get("muted") === "true" });
     anchor.current = null;
     positionRef.current = 0;
+    durationRef.current = 0;
     pendingSeek.current = null;
     if (seekTimer.current != null) window.clearTimeout(seekTimer.current);
     seekTimer.current = null;
@@ -117,18 +195,9 @@ export function usePlaybackBridge(
       ) {
         return;
       }
-      let payload: unknown = event.data;
-      if (typeof payload === "string") {
-        try {
-          payload = JSON.parse(payload);
-        } catch {
-          return;
-        }
-      }
-      if (!payload || typeof payload !== "object") return;
-      const message = payload as Record<string, unknown>;
-      const type = typeof message.type === "string" ? message.type : "";
-      if (!type.startsWith("cinesrc:")) return;
+      const message = parseCineSrcMessage(event.data);
+      if (!message) return;
+      const type = message.type;
 
       const reportedPosition = seconds(message.currentTime);
       const reportedDuration = seconds(message.duration);
@@ -152,53 +221,11 @@ export function usePlaybackBridge(
       }
 
       setState((current) => {
-        const next: PlaybackBridgeState = {
-          ...current,
-          connected: type !== "cinesrc:error",
-          position: acceptedPosition ?? current.position,
-          duration:
-            reportedDuration != null && reportedDuration > 0
-              ? reportedDuration
-              : current.duration,
-        };
-        switch (type) {
-          case "cinesrc:ready":
-          case "cinesrc:loadedmetadata":
-            next.connected = true;
-            next.buffering = false;
-            break;
-          case "cinesrc:play":
-            next.playing = true;
-            next.buffering = false;
-            break;
-          case "cinesrc:pause":
-          case "cinesrc:ended":
-            next.playing = false;
-            next.buffering = false;
-            break;
-          case "cinesrc:seeking":
-            next.buffering = true;
-            break;
-          case "cinesrc:seeked":
-            next.buffering = false;
-            break;
-          case "cinesrc:timeupdate":
-            if (!pendingSeek.current) next.buffering = false;
-            break;
-          case "cinesrc:volumechange":
-            next.muted = message.muted === true;
-            next.volume = seconds(message.volume) ?? current.volume;
-            break;
-          case "cinesrc:ratechange":
-            next.playbackRate =
-              seconds(message.playbackRate) ?? current.playbackRate;
-            break;
-          case "cinesrc:error":
-            next.connected = false;
-            next.buffering = false;
-            break;
-        }
-        return next;
+        const next = reducePlaybackEvent(current, {
+          ...message,
+          currentTime: acceptedPosition,
+        });
+        return pendingSeek.current ? { ...next, buffering: true } : next;
       });
     };
 
@@ -243,7 +270,7 @@ export function usePlaybackBridge(
       play() {
         sendCommand("play");
         anchor.current = { at: Date.now(), position: positionRef.current };
-        setState((current) => ({ ...current, playing: true }));
+        setState((current) => ({ ...current, playing: true, autoplayBlocked: false }));
       },
       pause() {
         sendCommand("pause");

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { createPortal } from "react-dom";
 import { isKidsMedia, watchHref, type EpisodeSummary, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
 import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/playback";
-import { usePlaybackBridge } from "@/lib/playback-bridge";
+import { parseCineSrcMessage, usePlaybackBridge } from "@/lib/playback-bridge";
 import {
   parseSubtitle,
   readBrowserSubtitle,
@@ -140,6 +140,9 @@ export function WatchExperience({
         provider: mirror.provider,
         anilistId: animeEpisode?.anilistId,
         autoplay: true,
+        // Browsers can reject audible autoplay in an iframe. Start silently
+        // and expose an explicit sound control instead of waiting for a timeout.
+        muted: mirror.provider === "cinesrc",
         startAt: resumePosition > 0 ? resumePosition : undefined,
         customControls: mirror.provider === "cinesrc",
         quality,
@@ -148,7 +151,6 @@ export function WatchExperience({
   );
   const customPlayer = mirror.provider === "cinesrc";
   const [playback, remote] = usePlaybackBridge(frameRef, sourceUrl, customPlayer);
-  const resumeSent = useRef(false);
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
   const progressBucket = Math.floor(playback.position / 10);
@@ -320,7 +322,6 @@ export function WatchExperience({
   const changeQuality = (next: string | null) => {
     if (next === quality) return;
     setResumePosition(playback.position);
-    resumeSent.current = false;
     setQuality(next);
   };
 
@@ -350,6 +351,8 @@ export function WatchExperience({
 
   const tryNextSource = useCallback((failedSourceId?: string) => {
     const current = mirrorRef.current;
+    if (failedSourceId && failedSourceId !== current.id) return;
+    if (attemptedSourcesRef.current.has(current.id)) return;
     attemptedSourcesRef.current.add(failedSourceId ?? current.id);
     const currentIndex = PLAYBACK_SOURCES.findIndex((source) => source.id === current.id);
     const next = PLAYBACK_SOURCES.slice(currentIndex + 1).find(
@@ -374,26 +377,31 @@ export function WatchExperience({
 
   useEffect(() => {
     clearLoadTimeout();
+    if (!authReady || (activeProfile?.isKids && !isKidsMedia(detail))) return;
     loadTimeoutRef.current = window.setTimeout(() => {
-      tryNextSource(mirrorRef.current.id);
+      setSourceNotice("This source is taking longer to load. You can keep waiting or try another source.");
     }, 20_000);
     return clearLoadTimeout;
-  }, [clearLoadTimeout, sourceUrl, tryNextSource]);
+  }, [activeProfile?.isKids, authReady, clearLoadTimeout, detail, sourceUrl]);
+
+  useEffect(() => {
+    if (!playback.connected || playback.buffering || playback.duration <= 0) return;
+    clearLoadTimeout();
+    setSourceNotice("");
+  }, [clearLoadTimeout, playback.buffering, playback.connected, playback.duration]);
 
   useEffect(() => {
     const onProviderMessage = (event: MessageEvent) => {
       const frame = frameRef.current;
       if (!frame?.contentWindow || event.source !== frame.contentWindow) return;
-
-      let text = "";
-      try {
-        text = typeof event.data === "string" ? event.data : JSON.stringify(event.data);
-      } catch {
-        return;
+      if (event.origin !== new URL(mirrorRef.current.host).origin) return;
+      const message = parseCineSrcMessage(event.data);
+      if (message?.type !== "cinesrc:error" || typeof message.error !== "string") return;
+      // Individual stream failures trigger CineSrc's own recovery. Only an
+      // explicit exhaustion of its sources should replace the entire iframe.
+      if (/unavailable on (?:every|all) server|no working server|all (?:servers|sources) (?:failed|unavailable)/i.test(message.error)) {
+        tryNextSource(mirrorRef.current.id);
       }
-
-      if (!/(no (?:media|video|stream|source)|not found|unavailable|cannot be played|can't be played|playback error|error[_ -]loading|file not found)/i.test(text)) return;
-      tryNextSource(mirrorRef.current.id);
     };
 
     window.addEventListener("message", onProviderMessage);
@@ -406,17 +414,11 @@ export function WatchExperience({
   }, [clearLoadTimeout]);
 
   const handleFrameLoad = () => {
-    clearLoadTimeout();
+    if (!customPlayer) clearLoadTimeout();
     if (!sourceNotice) return;
     if (noticeTimeoutRef.current != null) window.clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = window.setTimeout(() => setSourceNotice(""), 3000);
   };
-
-  useEffect(() => {
-    if (resumeSent.current || !playback.connected || resumePosition < 5) return;
-    resumeSent.current = true;
-    remote.seekTo(resumePosition);
-  }, [playback.connected, remote, resumePosition]);
 
   useEffect(() => {
     if (progressBucket < 1) return;
@@ -453,7 +455,6 @@ export function WatchExperience({
     setSeason(nextSeason);
     setEpisode(nextEpisode);
     setResumePosition(0);
-    resumeSent.current = false;
     const url = new URL(window.location.href);
     url.searchParams.set("season", String(nextSeason));
     url.searchParams.set("episode", String(nextEpisode));
@@ -618,19 +619,30 @@ export function WatchExperience({
                     {isSeries ? `S${season} · E${episode}` : "Movie"}
                   </small>
                 </div>
-                <span className="rounded-full bg-[#e21927] px-2.5 py-1 text-[10px] font-black tracking-wider uppercase">
-                  Krzene
-                </span>
+                <div className="flex items-center gap-2">
+                  {playback.muted && (
+                    <button
+                      type="button"
+                      className="pointer-events-auto cursor-pointer rounded-full bg-black/70 px-3 py-2 text-xs font-bold"
+                      onClick={(event) => { event.stopPropagation(); remote.setMuted(false); }}
+                    >
+                      Turn sound on
+                    </button>
+                  )}
+                  <span className="rounded-full bg-[#e21927] px-2.5 py-1 text-[10px] font-black tracking-wider uppercase">
+                    Krzene
+                  </span>
+                </div>
               </div>
 
               <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                {(!playback.connected || playback.buffering) && (
+                {(!playback.connected || playback.buffering) && !playback.autoplayBlocked && (
                   <span
                     className="h-12 w-12 animate-spin rounded-full border-[3px] border-white/25 border-t-[#e21927]"
                     aria-label="Buffering"
                   />
                 )}
-                {playback.connected && !playback.buffering && controlsVisible && (
+                {playback.connected && (!playback.buffering || playback.autoplayBlocked) && controlsVisible && (
                   <div className="pointer-events-auto flex items-center gap-5 max-[640px]:gap-3" onClick={(event) => event.stopPropagation()}>
                     <button
                       type="button"
@@ -735,9 +747,14 @@ export function WatchExperience({
             </div>
           )}
           {sourceNotice && (
-            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3" role="status" aria-live="polite">
-              <span className="rounded-full border border-white/15 bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl backdrop-blur-md">
+            <div className="absolute inset-x-0 top-3 z-10 flex justify-center px-3" role="status" aria-live="polite">
+              <span className="rounded-xl border border-white/15 bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl backdrop-blur-md">
                 {sourceNotice}
+                {PLAYBACK_SOURCES.some((source) => source.id !== mirror.id && !attemptedSourcesRef.current.has(source.id)) && (
+                  <button className="ml-3 cursor-pointer underline" type="button" onClick={() => tryNextSource(mirror.id)}>
+                    Try another source
+                  </button>
+                )}
               </span>
             </div>
           )}

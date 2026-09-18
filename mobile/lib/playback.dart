@@ -33,7 +33,6 @@ Uri playbackUri({
       'back': 'close',
       'autonext': 'true',
       'autoskip': 'false',
-      'prioritize': 'true',
       'continueprompt': 'false',
       if (resumeAt > 0) 't': '$resumeAt',
       if (quality != null && quality.isNotEmpty) 'quality': quality,
