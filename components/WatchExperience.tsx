@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { isKidsMedia, watchHref, type EpisodeSummary, type Media, type MediaDetail, type StreamingOffer } from "@/lib/media";
 import { DEFAULT_MIRROR, PLAYBACK_SOURCES, embedUrl, type PlaybackSource } from "@/lib/playback";
 import { parseCineSrcMessage, usePlaybackBridge } from "@/lib/playback-bridge";
+import { enterPlayerFullscreen, exitPlayerFullscreen, fullscreenElement, nativePlayerUrl } from "@/lib/player-fullscreen";
 import {
   parseSubtitle,
   readBrowserSubtitle,
@@ -83,7 +84,10 @@ export function WatchExperience({
   const [quality, setQuality] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [scrubPosition, setScrubPosition] = useState<number | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [expandedPlayer, setExpandedPlayer] = useState(false);
+  const [showNativeHint, setShowNativeHint] = useState(true);
+  const isFullscreen = nativeFullscreen || expandedPlayer;
   const [subtitle, setSubtitle] = useState<BrowserSubtitle | null>(null);
   const [subtitleNotice, setSubtitleNotice] = useState("");
   const [findingSubtitle, setFindingSubtitle] = useState(false);
@@ -93,6 +97,9 @@ export function WatchExperience({
   const [leaving, setLeaving] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const playerShellRef = useRef<HTMLDivElement>(null);
+  const fullscreenPendingRef = useRef(false);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
   const subtitleInputRef = useRef<HTMLInputElement>(null);
   const controlsTimeoutRef = useRef<number | null>(null);
   const mirrorRef = useRef(mirror);
@@ -197,11 +204,43 @@ export function WatchExperience({
   }, [subtitleKey]);
 
   useEffect(() => {
-    const onFullscreen = () =>
-      setIsFullscreen(document.fullscreenElement === playerShellRef.current);
+    const onFullscreen = () => {
+      const element = fullscreenElement(document);
+      const active = !!element && !!playerShellRef.current?.contains(element);
+      setNativeFullscreen(active);
+      if (active) setExpandedPlayer(false);
+      else fullscreenButtonRef.current?.focus({ preventScroll: true });
+      setControlsVisible(true);
+    };
     document.addEventListener("fullscreenchange", onFullscreen);
-    return () => document.removeEventListener("fullscreenchange", onFullscreen);
+    document.addEventListener("webkitfullscreenchange", onFullscreen);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFullscreen);
+      document.removeEventListener("webkitfullscreenchange", onFullscreen);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!expandedPlayer) return;
+    // Keep the existing iframe mounted: portaling/replacing it restarts playback.
+    const elements = [document.documentElement, document.body];
+    const previous = elements.map((element) => ({
+      overflow: element.style.overflow,
+      overscrollBehavior: element.style.overscrollBehavior,
+    }));
+    for (const element of elements) {
+      element.style.overflow = "hidden";
+      element.style.overscrollBehavior = "none";
+    }
+    fullscreenCloseRef.current?.focus({ preventScroll: true });
+    return () => {
+      elements.forEach((element, index) => {
+        element.style.overflow = previous[index].overflow;
+        element.style.overscrollBehavior = previous[index].overscrollBehavior;
+      });
+      fullscreenButtonRef.current?.focus({ preventScroll: true });
+    };
+  }, [expandedPlayer]);
 
   const revealControls = useCallback(() => {
     setControlsVisible(true);
@@ -326,9 +365,31 @@ export function WatchExperience({
   };
 
   const toggleFullscreen = async () => {
-    if (!playerShellRef.current) return;
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await playerShellRef.current.requestFullscreen();
+    const shell = playerShellRef.current;
+    if (!shell || fullscreenPendingRef.current) return;
+    setOpenMenu(null);
+    revealControls();
+    if (expandedPlayer) {
+      setExpandedPlayer(false);
+      return;
+    }
+    fullscreenPendingRef.current = true;
+    try {
+      if (fullscreenElement(document)) {
+        if (!await exitPlayerFullscreen(document)) {
+          setSourceNotice("Use your browser's fullscreen exit control to leave fullscreen.");
+        }
+      } else {
+        // Must run inside the tap gesture; no network or other awaits first.
+        const entered = await enterPlayerFullscreen(shell);
+        if (shell.isConnected && !entered) {
+          setShowNativeHint(true);
+          setExpandedPlayer(true);
+        }
+      }
+    } finally {
+      fullscreenPendingRef.current = false;
+    }
   };
 
   useEffect(() => {
@@ -507,17 +568,21 @@ export function WatchExperience({
         if (openMenu) {
           event.preventDefault();
           setOpenMenu(null);
+        } else if (expandedPlayer) {
+          event.preventDefault();
+          setExpandedPlayer(false);
         }
       } else if (event.key === "BrowserBack" || event.key === "GoBack" || legacyCode === 10009 || legacyCode === 461) {
         event.preventDefault();
         if (openMenu) setOpenMenu(null);
+        else if (expandedPlayer) setExpandedPlayer(false);
         else returnToCatalog();
       }
     };
 
     window.addEventListener("keydown", onRemoteKey);
     return () => window.removeEventListener("keydown", onRemoteKey);
-  }, [openMenu, remote, returnToCatalog]);
+  }, [expandedPlayer, openMenu, remote, returnToCatalog]);
 
   if (!authReady) {
     return (
@@ -552,7 +617,7 @@ export function WatchExperience({
 
   return (
     <main
-      className={`pwa-safe-bottom min-h-screen bg-[#040404] pb-[90px] text-white ${!transitionReady ? "opacity-0" : leaving ? "ui-watch-page-exit" : transitionOrigin ? "ui-watch-page-enter" : "ui-modal-enter"}`}
+      className={`pwa-safe-bottom min-h-screen bg-[#040404] pb-[90px] text-white ${expandedPlayer ? "watch-expanded-page" : ""} ${!transitionReady ? "opacity-0" : leaving ? "ui-watch-page-exit" : transitionOrigin ? "ui-watch-page-enter" : "ui-modal-enter"}`}
       style={transitionStyle}
     >
       <section className="pwa-watch-shell px-[max(26px,calc((100vw_-_1720px)/2))] pt-5">
@@ -578,9 +643,11 @@ export function WatchExperience({
           </div>
         </header>
 
+        <div className="aspect-video w-full">
         <div
           ref={playerShellRef}
-          className="group relative aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md"
+          data-fullscreen={isFullscreen || undefined}
+          className={`watch-player-shell group relative aspect-video w-full overflow-hidden rounded-lg bg-black max-[760px]:rounded-md ${expandedPlayer ? "watch-player-expanded" : ""}`}
           onMouseMove={customPlayer ? revealControls : undefined}
           onPointerDown={customPlayer ? revealControls : undefined}
         >
@@ -602,6 +669,7 @@ export function WatchExperience({
               className="absolute inset-0 z-[2] select-none"
               onClick={revealControls}
               onDoubleClick={(event) => {
+                if ((event.target as Element).closest("button, a, input")) return;
                 const bounds = event.currentTarget.getBoundingClientRect();
                 remote.seekBy(event.clientX - bounds.left < bounds.width / 2 ? -10 : 10);
                 revealControls();
@@ -611,7 +679,8 @@ export function WatchExperience({
                 className={`pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.72),transparent_36%,rgba(0,0,0,.86))] transition-opacity duration-200 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
               />
               <div
-                className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4 transition-opacity duration-200 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+                className={`watch-player-top pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-4 transition-opacity duration-200 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+                inert={!controlsVisible}
               >
                 <div className="min-w-0">
                   <b className="block truncate text-sm drop-shadow-lg">{detail.title}</b>
@@ -695,7 +764,8 @@ export function WatchExperience({
               )}
 
               <div
-                className={`pointer-events-auto absolute inset-x-0 bottom-0 p-4 transition-opacity duration-200 ${controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"}`}
+                className={`watch-player-bottom absolute inset-x-0 bottom-0 p-4 transition-opacity duration-200 ${controlsVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+                inert={!controlsVisible}
                 onClick={(event) => event.stopPropagation()}
               >
                 <input
@@ -716,12 +786,12 @@ export function WatchExperience({
                     setScrubPosition(null);
                   }}
                 />
-                <div className="mt-2 flex items-center gap-2 text-xs tabular-nums">
+                <div className="mt-2 flex items-center gap-2 text-xs tabular-nums max-[480px]:gap-1 max-[480px]:text-[10px]">
                   <time>{clock(shownPosition)}</time>
                   <span className="text-white/45">/ {clock(playback.duration)}</span>
                   <button
                     type="button"
-                    className="ml-2 cursor-pointer rounded-lg px-2 py-1 text-base hover:bg-white/12"
+                    className="shrink-0 cursor-pointer rounded-lg px-2 py-1 text-base hover:bg-white/12 max-[760px]:min-h-11 max-[760px]:min-w-11"
                     onClick={() => remote.setMuted(!playback.muted)}
                     aria-label={playback.muted ? "Unmute" : "Mute"}
                   >
@@ -729,21 +799,58 @@ export function WatchExperience({
                   </button>
                   <button
                     type="button"
-                    className="ml-auto cursor-pointer rounded-lg px-2 py-1 font-bold hover:bg-white/12"
+                    className="ml-auto shrink-0 cursor-pointer rounded-lg px-2 py-1 font-bold hover:bg-white/12 max-[760px]:min-h-11"
                     onClick={() => toggleMenu("settings")}
                   >
                     Settings
                   </button>
                   <button
                     type="button"
-                    className="cursor-pointer rounded-lg px-2 py-1 text-base hover:bg-white/12"
-                    onClick={() => void toggleFullscreen()}
+                    ref={fullscreenButtonRef}
+                    className="relative z-10 shrink-0 cursor-pointer touch-manipulation rounded-lg px-2 py-1 text-base hover:bg-white/12 max-[760px]:min-h-11 max-[760px]:min-w-11"
+                    onClick={(event) => { event.stopPropagation(); void toggleFullscreen(); }}
                     aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                    aria-pressed={isFullscreen}
                   >
                     {isFullscreen ? "↙" : "⛶"}
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+          {isFullscreen && (
+            <button
+              ref={fullscreenCloseRef}
+              type="button"
+              className="watch-player-close absolute z-20 grid h-11 w-11 cursor-pointer touch-manipulation place-items-center rounded-full bg-black/75 text-2xl text-white"
+              onClick={(event) => { event.stopPropagation(); void toggleFullscreen(); }}
+              aria-label="Close fullscreen player"
+            >
+              ×
+            </button>
+          )}
+          {expandedPlayer && customPlayer && showNativeHint && controlsVisible && !openMenu && (
+            <div className="watch-native-player-hint absolute inset-x-4 z-10 mx-auto max-w-lg rounded-xl bg-black/85 p-3 text-center text-xs text-white/80" role="status">
+              Full-window mode. For device fullscreen, open CineSrc and tap its fullscreen control.
+              <div className="flex flex-wrap justify-center gap-2">
+              <a
+                className="mt-2 inline-flex min-h-11 items-center justify-center rounded-lg border border-white/25 px-4 font-bold text-white"
+                href={nativePlayerUrl(sourceUrl, playback.position)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => remote.pause()}
+              >
+                Open native player ↗
+              </a>
+              <button
+                type="button"
+                className="mt-2 min-h-11 cursor-pointer rounded-lg px-3 text-white underline"
+                onClick={() => setShowNativeHint(false)}
+              >
+                Keep custom player
+              </button>
+              </div>
+              <p className="mt-1 text-[10px]">Opens a new tab. Local subtitles and Krzene controls stay here.</p>
             </div>
           )}
           {sourceNotice && (
@@ -758,6 +865,7 @@ export function WatchExperience({
               </span>
             </div>
           )}
+        </div>
         </div>
 
         <div className="relative border-b border-white/10 py-3">
@@ -795,7 +903,7 @@ export function WatchExperience({
               container={playerShellRef.current}
             >
             <div
-              className={`ui-menu-enter origin-top-right overflow-auto rounded-2xl border border-[#e21927]/45 bg-[#0d0d0f] p-4 shadow-[0_22px_60px_rgba(0,0,0,.65)] ${
+              className={`watch-player-menu ui-menu-enter origin-top-right overflow-auto rounded-2xl border border-[#e21927]/45 bg-[#0d0d0f] p-4 shadow-[0_22px_60px_rgba(0,0,0,.65)] ${
                 isFullscreen
                   ? "absolute right-4 bottom-16 z-30 max-h-[calc(100%-5rem)] w-[min(560px,calc(100%-2rem))]"
                   : "mt-3 ml-auto max-h-[min(72vh,680px)] w-[min(560px,100%)]"

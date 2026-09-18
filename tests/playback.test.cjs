@@ -20,6 +20,7 @@ function load(name) {
 const { embedUrl, PLAYBACK_SOURCES } = load('playback');
 const { parseSubtitle, subtitleTextAt } = load('browser-subtitles');
 const { parseCineSrcMessage, reducePlaybackEvent } = load('playback-bridge');
+const { enterPlayerFullscreen, exitPlayerFullscreen, fullscreenElement, nativePlayerUrl } = load('player-fullscreen');
 const { mappingsFromDataset, resolveAnimeEpisode } = load('anime-mappings');
 test('only CineSrc and Zoryva are selectable, CineSrc stays default', () => {
   assert.deepEqual(PLAYBACK_SOURCES.map(s => s.id), ['cinesrc', 'zoryva']);
@@ -89,6 +90,72 @@ test('custom playback supports browser-safe autoplay without losing episode resu
   assert.equal(url.searchParams.get('muted'), 'true');
   assert.equal(url.searchParams.get('t'), '42');
   assert.equal(url.searchParams.get('continueprompt'), 'false');
+});
+
+test('fullscreen requests native device mode immediately inside the user gesture', async () => {
+  let requested = false;
+  const doc = { fullscreenEnabled: true };
+  const target = {
+    ownerDocument: doc,
+    requestFullscreen(options) {
+      assert.equal(this, target);
+      assert.deepEqual(options, { navigationUI: 'hide' });
+      requested = true;
+      doc.fullscreenElement = target;
+      return Promise.resolve();
+    },
+  };
+  const result = enterPlayerFullscreen(target);
+  assert.equal(requested, true, 'must not await work before requesting fullscreen');
+  assert.equal(await result, true);
+  assert.equal(fullscreenElement(doc), target);
+  doc.exitFullscreen = function () { assert.equal(this, doc); this.fullscreenElement = null; };
+  assert.equal(await exitPlayerFullscreen(doc), true);
+  assert.equal(fullscreenElement(doc), null);
+});
+
+test('fullscreen supports prefixed Safari entry, change state, and exit', async () => {
+  const doc = { fullscreenEnabled: false, webkitFullscreenEnabled: true };
+  const target = {
+    ownerDocument: doc,
+    requestFullscreen() { assert.fail('disabled standard API must not be called'); },
+    webkitRequestFullscreen() { doc.webkitFullscreenElement = this; },
+  };
+  assert.equal(await enterPlayerFullscreen(target), true);
+  assert.equal(fullscreenElement(doc), target);
+  doc.webkitExitFullscreen = function () { this.webkitFullscreenElement = null; };
+  assert.equal(await exitPlayerFullscreen(doc), true);
+  assert.equal(fullscreenElement(doc), null);
+});
+
+test('unsupported and denied fullscreen requests allow the full-window fallback', async () => {
+  assert.equal(await enterPlayerFullscreen({ ownerDocument: {} }), false);
+  assert.equal(await enterPlayerFullscreen({
+    ownerDocument: { fullscreenEnabled: true },
+    requestFullscreen: () => Promise.reject(new Error('NotAllowedError')),
+  }), false);
+  assert.equal(await enterPlayerFullscreen({
+    ownerDocument: {}, webkitRequestFullscreen() { throw new Error('Not supported'); },
+  }), false);
+  assert.equal(await exitPlayerFullscreen({}), true);
+  assert.equal(await exitPlayerFullscreen({
+    fullscreenElement: {}, exitFullscreen: () => Promise.reject(new Error('Denied')),
+  }), false);
+});
+
+test('native player link enables provider controls and resumes the same episode', () => {
+  const source = embedUrl('tv', 1429, 2, 3, { customControls: true, quality: '720', startAt: 42 });
+  const url = new URL(nativePlayerUrl(source, 180.9));
+  assert.equal(url.origin, 'https://cinesrc.st');
+  assert.equal(url.pathname, '/embed/tv/1429');
+  assert.equal(url.searchParams.get('s'), '2');
+  assert.equal(url.searchParams.get('e'), '3');
+  assert.equal(url.searchParams.get('controls'), 'true');
+  assert.equal(url.searchParams.get('continueprompt'), 'false');
+  assert.equal(url.searchParams.get('t'), '180');
+  assert.equal(url.searchParams.get('quality'), '720');
+  assert.equal(new URL(nativePlayerUrl(source, NaN)).searchParams.get('t'), '0');
+  assert.equal(new URL(source).searchParams.get('controls'), 'false', 'current iframe URL stays unchanged');
 });
 
 test('CineSrc readiness follows media events, not source or command messages', () => {

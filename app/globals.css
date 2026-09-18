@@ -117,6 +117,58 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .ui-watch-page-enter { animation: watch-page-grow 620ms cubic-bezier(.16, 1, .3, 1) both; }
 .ui-watch-page-exit { animation: watch-page-grow 440ms cubic-bezier(.65, 0, .83, .23) reverse both; }
 
+/* Keep the fullscreen surface full-size, while leaving the iframe mounted. */
+.watch-player-shell:fullscreen {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.watch-player-shell:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.watch-expanded-page {
+  /* The entrance animation otherwise makes fixed children page-relative. */
+  animation: none;
+  transform: none;
+  filter: none;
+  will-change: auto;
+}
+.watch-player-shell.watch-player-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.watch-player-shell[data-fullscreen] .watch-player-top {
+  padding-top: max(16px, env(safe-area-inset-top, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: calc(max(12px, env(safe-area-inset-right, 0px)) + 56px);
+}
+.watch-player-shell[data-fullscreen] .watch-player-bottom {
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.watch-player-close {
+  top: max(12px, env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+}
+.watch-native-player-hint {
+  top: calc(max(16px, env(safe-area-inset-top, 0px)) + 52px);
+}
+.watch-player-shell[data-fullscreen] .watch-player-menu {
+  right: max(16px, env(safe-area-inset-right, 0px));
+  max-height: calc(100% - max(16px, env(safe-area-inset-top, 0px)) - 5rem);
+}
+
 @supports (animation-timeline: view()) {
   .catalog-rail-reveal {
     animation-timeline: view(block);
